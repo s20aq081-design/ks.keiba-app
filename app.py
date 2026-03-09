@@ -4,7 +4,6 @@ from bs4 import BeautifulSoup
 import csv
 import time
 import re
-import os
 
 # --- Webアプリの画面設定 ---
 st.set_page_config(page_title="競馬データ取得アプリ", page_icon="🏇")
@@ -79,7 +78,6 @@ if st.button("データ取得開始"):
             writer.writerow(['競馬場', '距離', '馬場', '枠', '馬番', '馬名', '性齢', '斤量', '騎手', '厩舎', '馬体重', 'オッズ', '人気'])
             writer.writerows(horse_list)
 
-        # できたファイルをダウンロードボタンとして表示
         with open(csv_shutuba, 'rb') as f:
             st.download_button(label=f"📥 {csv_shutuba} をダウンロード", data=f, file_name=csv_shutuba, mime='text/csv')
 
@@ -122,20 +120,29 @@ if st.button("データ取得開始"):
                     baba = tds[col_map.get('馬場', 15)].text.strip()
                     time_str = tds[col_map.get('タイム', 17)].text.strip()
                     chakusa = tds[col_map.get('着差', 18)].text.strip()
+                    
+                    # --- Excelの日付バグ対策 ---
                     tsuuka = tds[col_map.get('通過', 20)].text.strip()
+                    if tsuuka != "":
+                        tsuuka = f"'{tsuuka}"  # 文字列であることを強制する
+                    else:
+                        tsuuka = "直線"
+                        
                     pace = tds[col_map.get('ペース', 21)].text.strip()
                     bataiju = tds[col_map.get('馬体重', 23)].text.strip()
                     
-                    if tsuuka == "":
-                        tsuuka = "直線"
-                        
+                    # --- 上がり3Fの色（順位）を超強力に判定 ---
                     agari_td = tds[col_map.get('上り', 22)]
                     agari = agari_td.text.strip()
                     agari_html = str(agari_td).lower()
                     
-                    if 'yellow' in agari_html: agari += "(1位)"
-                    elif 'blue' in agari_html or 'aqua' in agari_html: agari += "(2位)"
-                    elif 'orange' in agari_html or 'red' in agari_html: agari += "(3位)"
+                    # 英単語だけでなく、カラーコード（HEX）でも判定するように拡張
+                    if 'yellow' in agari_html or 'ffffcc' in agari_html or 'ffff99' in agari_html:
+                        agari += "(1位)"
+                    elif 'blue' in agari_html or 'aqua' in agari_html or 'cyan' in agari_html or 'ccffff' in agari_html:
+                        agari += "(2位)"
+                    elif 'orange' in agari_html or 'red' in agari_html or 'green' in agari_html or 'ffcc99' in agari_html or 'ccffcc' in agari_html:
+                        agari += "(3位)"
 
                     past_results.append([horse_name, date, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
                     
