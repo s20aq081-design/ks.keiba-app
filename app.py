@@ -107,6 +107,11 @@ if st.button("データ取得開始"):
                 tds = h_row.find_all('td')
                 if len(tds) >= 25 and col_map: 
                     date = tds[col_map.get('日付', 0)].text.strip()
+                    
+                    # --- 【新規】競馬場の抽出（「1小倉2」から数字を消して「小倉」にする） ---
+                    kaisai_raw = tds[col_map.get('開催', 1)].text.strip()
+                    keibajo = re.sub(r'\d+', '', kaisai_raw)
+                    
                     race_name = tds[col_map.get('レース名', 4)].text.strip()
                     tousuu = tds[col_map.get('頭数', 6)].text.strip()
                     waku = tds[col_map.get('枠番', 7)].text.strip()
@@ -121,7 +126,7 @@ if st.button("データ取得開始"):
                     time_str = tds[col_map.get('タイム', 17)].text.strip()
                     chakusa = tds[col_map.get('着差', 18)].text.strip()
                     
-                    # --- 【修正1】Excelの日付バグ対策 ---
+                    # --- Excelの日付バグ対策 ---
                     tsuuka = tds[col_map.get('通過', 20)].text.strip()
                     if tsuuka != "":
                         tsuuka = f"'{tsuuka}"  # 文字列であることを強制する
@@ -131,7 +136,7 @@ if st.button("データ取得開始"):
                     pace = tds[col_map.get('ペース', 21)].text.strip()
                     bataiju = tds[col_map.get('馬体重', 23)].text.strip()
                     
-                    # --- 【修正2】上がり3Fの順位（暗号）を超強力に判定 ---
+                    # --- 上がり3Fの順位（暗号）を超強力に判定 ---
                     agari = ""
                     agari_idx = col_map.get('上り', 22)
                     if len(tds) > agari_idx:
@@ -149,7 +154,8 @@ if st.button("データ取得開始"):
                         else:
                             agari = agari_time
 
-                    past_results.append([horse_name, date, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
+                    # 【修正】競馬場(keibajo)を配列に追加しました
+                    past_results.append([horse_name, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
                     
                     race_count += 1
                     if race_count >= 20: 
@@ -160,7 +166,8 @@ if st.button("データ取得開始"):
 
         with open(csv_past, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['馬名', '日付', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
+            # 【修正】ヘッダー（1行目）にも「競馬場」を追加し、カッコのエラーも修正済み
+            writer.writerow(['馬名', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
             writer.writerows(past_results)
 
         status_text.text("すべてのデータ取得が完了しました！")
