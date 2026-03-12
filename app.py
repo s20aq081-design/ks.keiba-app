@@ -71,7 +71,7 @@ if check_password():
             soup = BeautifulSoup(response.text, 'html.parser')
 
             horse_list = []
-            horse_urls = [] # ここには「馬名」と「馬のID」を保存します
+            horse_urls = []
 
             race_data01_text = soup.select_one('.RaceData01').text if soup.select_one('.RaceData01') else ""
             race_data02_text = soup.select_one('.RaceData02').text if soup.select_one('.RaceData02') else ""
@@ -106,7 +106,6 @@ if check_password():
                         if horse_elem and 'href' in horse_elem.attrs:
                             match = re.search(r'\d{10}', horse_elem['href'])
                             if match:
-                                # 【修正】馬のIDだけを記録しておく
                                 horse_urls.append((horse_name, match.group(0)))
 
             with open(csv_shutuba, 'w', newline='', encoding='utf-8') as f:
@@ -130,30 +129,37 @@ if check_password():
             for i, (horse_name, horse_id) in enumerate(horse_urls):
                 status_text.text(f"処理中: {horse_name} ({i+1}/{total_horses}頭目)")
                 
-                # --- ① 血統データの取得（馬のトップページから） ---
+                # --- ① 血統データの取得（絶対に失敗しないように修正！） ---
                 top_url = f"https://db.netkeiba.com/horse/{horse_id}/"
                 res_top = requests.get(top_url, headers=headers)
                 res_top.encoding = 'euc-jp'
                 soup_top = BeautifulSoup(res_top.text, 'html.parser')
                 
-                sire = "不明"
-                dam = "不明"
-                bms = "不明"
-                blood_table = soup_top.select_one('table.blood_table')
-                if blood_table:
-                    b_rows = blood_table.find_all('tr')
-                    if len(b_rows) >= 3:
-                        sire_td = b_rows[0].find('td')
-                        if sire_td: sire = sire_td.text.strip().replace('\n', '')
-                        
-                        dam_tds = b_rows[2].find_all('td')
-                        if len(dam_tds) >= 2:
-                            dam = dam_tds[0].text.strip().replace('\n', '')
-                            bms = dam_tds[1].text.strip().replace('\n', '')
+                sire, dam, bms = "不明", "不明", "不明"
                 
-                time.sleep(1) # サーバーに優しく（1秒待つ）
+                try:
+                    blood_table = soup_top.find('table', class_=re.compile('blood_table'))
+                    if blood_table:
+                        b_rows = blood_table.find_all('tr')
+                        if len(b_rows) > 0:
+                            # 父：1行目の最初のマス
+                            sire_tds = b_rows[0].find_all('td')
+                            if len(sire_tds) > 0:
+                                sire = re.sub(r'\s+', '', sire_tds[0].text) # 空白を徹底的に排除
+                                
+                            # 母と母父：表を真っ二つに割った中央の行
+                            half = len(b_rows) // 2
+                            if half > 0 and half < len(b_rows):
+                                dam_tds = b_rows[half].find_all('td')
+                                if len(dam_tds) >= 2:
+                                    dam = re.sub(r'\s+', '', dam_tds[0].text)
+                                    bms = re.sub(r'\s+', '', dam_tds[1].text)
+                except Exception:
+                    pass
+                
+                time.sleep(1)
 
-                # --- ② 過去戦績データの取得（詳細な結果ページから） ---
+                # --- ② 過去戦績データの取得 ---
                 result_url = f"https://db.netkeiba.com/horse/result/{horse_id}/"
                 res_result = requests.get(result_url, headers=headers)
                 res_result.encoding = 'euc-jp'
@@ -212,14 +218,13 @@ if check_password():
                             else:
                                 agari = agari_time
 
-                        # 血統情報と戦績情報を合体させて保存！
                         past_results.append([horse_name, sire, dam, bms, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
                         
                         race_count += 1
                         if race_count >= 20: 
                             break
                             
-                time.sleep(1) # サーバーに優しく（もう1秒待つ）
+                time.sleep(1)
                 progress_bar.progress((i + 1) / total_horses)
 
             with open(csv_past, 'w', newline='', encoding='utf-8') as f:
