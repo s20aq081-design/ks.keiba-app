@@ -129,7 +129,7 @@ if check_password():
             for i, (horse_name, horse_id) in enumerate(horse_urls):
                 status_text.text(f"処理中: {horse_name} ({i+1}/{total_horses}頭目)")
                 
-                # --- ① 血統データの取得（絶対に失敗しないように修正！） ---
+                # --- ① 血統データの取得（絶対に失敗しない超堅牢版） ---
                 top_url = f"https://db.netkeiba.com/horse/{horse_id}/"
                 res_top = requests.get(top_url, headers=headers)
                 res_top.encoding = 'euc-jp'
@@ -137,25 +137,27 @@ if check_password():
                 
                 sire, dam, bms = "不明", "不明", "不明"
                 
-                try:
-                    blood_table = soup_top.find('table', class_=re.compile('blood_table'))
-                    if blood_table:
-                        b_rows = blood_table.find_all('tr')
-                        if len(b_rows) > 0:
-                            # 父：1行目の最初のマス
-                            sire_tds = b_rows[0].find_all('td')
-                            if len(sire_tds) > 0:
-                                sire = re.sub(r'\s+', '', sire_tds[0].text) # 空白を徹底的に排除
-                                
-                            # 母と母父：表を真っ二つに割った中央の行
-                            half = len(b_rows) // 2
-                            if half > 0 and half < len(b_rows):
-                                dam_tds = b_rows[half].find_all('td')
-                                if len(dam_tds) >= 2:
-                                    dam = re.sub(r'\s+', '', dam_tds[0].text)
-                                    bms = re.sub(r'\s+', '', dam_tds[1].text)
-                except Exception:
-                    pass
+                # 複雑な正規表現をやめ、「血統表」という名札を直接ピンポイントで狙い撃ち
+                blood_table = soup_top.find('table', summary='血統表')
+                if not blood_table:
+                    blood_table = soup_top.select_one('table.blood_table')
+                    
+                if blood_table:
+                    b_rows = blood_table.find_all('tr')
+                    if len(b_rows) >= 4:
+                        # 父：1行目の中にある、最初のリンク(aタグ)の文字だけを抜く
+                        sire_td = b_rows[0].find('td')
+                        if sire_td and sire_td.find('a'):
+                            sire = sire_td.find('a').text.strip()
+                            
+                        # 母と母父：表の真ん中の行にあるリンク(aタグ)の文字だけを抜く
+                        half = len(b_rows) // 2
+                        dam_tds = b_rows[half].find_all('td')
+                        if len(dam_tds) >= 2:
+                            if dam_tds[0].find('a'):
+                                dam = dam_tds[0].find('a').text.strip()
+                            if dam_tds[1].find('a'):
+                                bms = dam_tds[1].find('a').text.strip()
                 
                 time.sleep(1)
 
