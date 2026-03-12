@@ -113,9 +113,6 @@ if check_password():
                 writer.writerow(['競馬場', '距離', '馬場', '枠', '馬番', '馬名', '性齢', '斤量', '騎手', '厩舎', '馬体重', 'オッズ', '人気'])
                 writer.writerows(horse_list)
 
-            with open(csv_shutuba, 'rb') as f:
-                st.download_button(label=f"📥 {csv_shutuba} をダウンロード", data=f, file_name=csv_shutuba, mime='text/csv')
-
             # ==========================================
             # 2. 過去戦績（＋血統）データの取得
             # ==========================================
@@ -129,7 +126,7 @@ if check_password():
             for i, (horse_name, horse_id) in enumerate(horse_urls):
                 status_text.text(f"処理中: {horse_name} ({i+1}/{total_horses}頭目)")
                 
-                # --- ① 血統データの取得（絶対に失敗しない超堅牢版） ---
+                # --- ① 血統データの取得（リンク有無に左右されない強制抽出版） ---
                 top_url = f"https://db.netkeiba.com/horse/{horse_id}/"
                 res_top = requests.get(top_url, headers=headers)
                 res_top.encoding = 'euc-jp'
@@ -137,27 +134,26 @@ if check_password():
                 
                 sire, dam, bms = "不明", "不明", "不明"
                 
-                # 複雑な正規表現をやめ、「血統表」という名札を直接ピンポイントで狙い撃ち
-                blood_table = soup_top.find('table', summary='血統表')
-                if not blood_table:
-                    blood_table = soup_top.select_one('table.blood_table')
-                    
-                if blood_table:
-                    b_rows = blood_table.find_all('tr')
-                    if len(b_rows) >= 4:
-                        # 父：1行目の中にある、最初のリンク(aタグ)の文字だけを抜く
-                        sire_td = b_rows[0].find('td')
-                        if sire_td and sire_td.find('a'):
-                            sire = sire_td.find('a').text.strip()
+                try:
+                    # blood_tableというクラスを持つ表を検索
+                    blood_table = soup_top.find('table', class_=re.compile('blood_table'))
+                    if blood_table:
+                        b_rows = blood_table.find_all('tr')
+                        if len(b_rows) >= 4:
+                            # 父（1行目）
+                            sire_tds = b_rows[0].find_all('td')
+                            if len(sire_tds) > 0:
+                                # HTMLの改行を「|」に置き換え、最初の塊（馬名）だけを取り出す
+                                sire = sire_tds[0].get_text(separator='|').split('|')[0].strip()
                             
-                        # 母と母父：表の真ん中の行にあるリンク(aタグ)の文字だけを抜く
-                        half = len(b_rows) // 2
-                        dam_tds = b_rows[half].find_all('td')
-                        if len(dam_tds) >= 2:
-                            if dam_tds[0].find('a'):
-                                dam = dam_tds[0].find('a').text.strip()
-                            if dam_tds[1].find('a'):
-                                bms = dam_tds[1].find('a').text.strip()
+                            # 母・母父（表の真ん中の行）
+                            half = len(b_rows) // 2
+                            dam_tds = b_rows[half].find_all('td')
+                            if len(dam_tds) >= 2:
+                                dam = dam_tds[0].get_text(separator='|').split('|')[0].strip()
+                                bms = dam_tds[1].get_text(separator='|').split('|')[0].strip()
+                except Exception as e:
+                    pass
                 
                 time.sleep(1)
 
@@ -237,5 +233,8 @@ if check_password():
             status_text.text("すべてのデータ取得が完了しました！")
             st.success("取得完了！下のボタンからダウンロードしてください。")
             
+            with open(csv_shutuba, 'rb') as f:
+                st.download_button(label=f"📥 {csv_shutuba} をダウンロード", data=f, file_name=csv_shutuba, mime='text/csv')
+
             with open(csv_past, 'rb') as f:
                 st.download_button(label=f"📥 {csv_past} をダウンロード", data=f, file_name=csv_past, mime='text/csv')
