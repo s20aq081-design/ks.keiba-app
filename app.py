@@ -116,7 +116,7 @@ if check_password():
             # ==========================================
             # 2. 過去戦績（＋血統）データの取得
             # ==========================================
-            st.info("過去20戦のデータを取得しています...（約1分かかります）")
+            st.info("過去20戦の戦績と血統データを取得しています...（約1分半かかります）")
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -126,47 +126,61 @@ if check_password():
             for i, (horse_name, horse_id) in enumerate(horse_urls):
                 status_text.text(f"処理中: {horse_name} ({i+1}/{total_horses}頭目)")
                 
-                # --- ① 血統データの取得（リンク有無に左右されない強制抽出版） ---
-                top_url = f"https://db.netkeiba.com/horse/{horse_id}/"
-                res_top = requests.get(top_url, headers=headers)
-                res_top.encoding = 'euc-jp'
-                soup_top = BeautifulSoup(res_top.text, 'html.parser')
+                # --- ① 血統データの取得（3代・5代どちらの表でも絶対に見つける究極版） ---
+                url_prof = f"https://db.netkeiba.com/horse/{horse_id}/"
+                res_prof = requests.get(url_prof, headers=headers)
+                res_prof.encoding = 'euc-jp'
+                soup_prof = BeautifulSoup(res_prof.text, 'html.parser')
                 
                 sire, dam, bms = "不明", "不明", "不明"
                 
                 try:
-                    # blood_tableというクラスを持つ表を検索
-                    blood_table = soup_top.find('table', class_=re.compile('blood_table'))
+                    blood_table = soup_prof.select_one('table.blood_table')
                     if blood_table:
-                        b_rows = blood_table.find_all('tr')
-                        if len(b_rows) >= 4:
-                            # 父（1行目）
-                            sire_tds = b_rows[0].find_all('td')
-                            if len(sire_tds) > 0:
-                                # HTMLの改行を「|」に置き換え、最初の塊（馬名）だけを取り出す
-                                sire = sire_tds[0].get_text(separator='|').split('|')[0].strip()
+                        tds_sire_dam = []
+                        tds_bms = []
+                        
+                        for td in blood_table.find_all('td'):
+                            r_span = str(td.get('rowspan', '')).strip()
+                            # 16(5代血統表) と 4(3代血統表) の両方を父・母のマスとして認識
+                            if r_span in ['16', '4']:
+                                tds_sire_dam.append(td)
+                            # 8(5代血統表) と 2(3代血統表) の両方を祖父母のマスとして認識
+                            elif r_span in ['8', '2']:
+                                tds_bms.append(td)
+                                
+                        # 馬名だけを綺麗に抜き出す専用関数
+                        def extract_horse_name(td):
+                            a_tag = td.find('a')
+                            if a_tag:
+                                return a_tag.text.strip()
+                            text = td.text.strip()
+                            text = re.sub(r'\s+', ' ', text).strip()
+                            return text.split(' ')[0]
+
+                        # 父（0番目）と 母（1番目）
+                        if len(tds_sire_dam) >= 2:
+                            sire = extract_horse_name(tds_sire_dam[0])
+                            dam = extract_horse_name(tds_sire_dam[1])
                             
-                            # 母・母父（表の真ん中の行）
-                            half = len(b_rows) // 2
-                            dam_tds = b_rows[half].find_all('td')
-                            if len(dam_tds) >= 2:
-                                dam = dam_tds[0].get_text(separator='|').split('|')[0].strip()
-                                bms = dam_tds[1].get_text(separator='|').split('|')[0].strip()
-                except Exception as e:
+                        # 母父（祖父母4頭のうちの3番目）
+                        if len(tds_bms) >= 3:
+                            bms = extract_horse_name(tds_bms[2])
+                except Exception:
                     pass
                 
-                time.sleep(1)
+                time.sleep(1) # ブロック回避のための待機
 
                 # --- ② 過去戦績データの取得 ---
-                result_url = f"https://db.netkeiba.com/horse/result/{horse_id}/"
-                res_result = requests.get(result_url, headers=headers)
-                res_result.encoding = 'euc-jp'
-                soup_horse = BeautifulSoup(res_result.text, 'html.parser')
+                url_res = f"https://db.netkeiba.com/horse/result/{horse_id}/"
+                res_res = requests.get(url_res, headers=headers)
+                res_res.encoding = 'euc-jp'
+                soup_res = BeautifulSoup(res_res.text, 'html.parser')
                 
-                th_elements = soup_horse.select('table.db_h_race_results th')
+                th_elements = soup_res.select('table.db_h_race_results th')
                 col_map = {th.text.strip(): idx for idx, th in enumerate(th_elements)}
                 
-                history_rows = soup_horse.select('table.db_h_race_results tr')
+                history_rows = soup_res.select('table.db_h_race_results tr')
                 race_count = 0
                 
                 for h_row in history_rows:
@@ -222,7 +236,7 @@ if check_password():
                         if race_count >= 20: 
                             break
                             
-                time.sleep(1)
+                time.sleep(1) # さらに1秒待機でサーバーブロックを完全回避
                 progress_bar.progress((i + 1) / total_horses)
 
             with open(csv_past, 'w', newline='', encoding='utf-8') as f:
