@@ -178,4 +178,57 @@ if check_password():
                         waku = tds[col_map.get('枠番', 7)].text.strip()
                         umaban = tds[col_map.get('馬番', 8)].text.strip()
                         odds = tds[col_map.get('オッズ', 9)].text.strip()
-                        ninki = tds[col_map
+                        ninki = tds[col_map.get('人気', 10)].text.strip()
+                        chakujun = tds[col_map.get('着順', 11)].text.strip()
+                        jockey = tds[col_map.get('騎手', 12)].text.strip()
+                        kinryo = tds[col_map.get('斤量', 13)].text.strip()
+                        kyori = tds[col_map.get('距離', 14)].text.strip()
+                        baba = tds[col_map.get('馬場', 15)].text.strip()
+                        time_str = tds[col_map.get('タイム', 17)].text.strip()
+                        chakusa = tds[col_map.get('着差', 18)].text.strip()
+                        
+                        tsuuka = tds[col_map.get('通過', 20)].text.strip()
+                        if tsuuka != "":
+                            tsuuka = f"'{tsuuka}"
+                        else:
+                            tsuuka = "直線"
+                            
+                        pace = tds[col_map.get('ペース', 21)].text.strip()
+                        bataiju = tds[col_map.get('馬体重', 23)].text.strip()
+                        
+                        agari = ""
+                        agari_idx = col_map.get('上り', 22)
+                        if len(tds) > agari_idx:
+                            agari_td = tds[agari_idx]
+                            agari_time = agari_td.text.strip()
+                            
+                            classes = agari_td.get('class', [])
+                            if 'rank_1' in classes:
+                                agari = f"{agari_time}(1位)"
+                            elif 'rank_2' in classes:
+                                agari = f"{agari_time}(2位)"
+                            elif 'rank_3' in classes:
+                                agari = f"{agari_time}(3位)"
+                            else:
+                                agari = agari_time
+
+                        # 血統情報と戦績情報を合体させて保存！
+                        past_results.append([horse_name, sire, dam, bms, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
+                        
+                        race_count += 1
+                        if race_count >= 20: 
+                            break
+                            
+                time.sleep(1) # サーバーに優しく（もう1秒待つ）
+                progress_bar.progress((i + 1) / total_horses)
+
+            with open(csv_past, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['馬名', '父', '母', '母父', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
+                writer.writerows(past_results)
+
+            status_text.text("すべてのデータ取得が完了しました！")
+            st.success("取得完了！下のボタンからダウンロードしてください。")
+            
+            with open(csv_past, 'rb') as f:
+                st.download_button(label=f"📥 {csv_past} をダウンロード", data=f, file_name=csv_past, mime='text/csv')
