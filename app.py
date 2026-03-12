@@ -114,9 +114,9 @@ if check_password():
                 writer.writerows(horse_list)
 
             # ==========================================
-            # 2. 過去戦績（＋血統）データの取得
+            # 2. 過去戦績データの取得（血統なし・高速化）
             # ==========================================
-            st.info("過去20戦の戦績と血統データを取得しています...（約1分半かかります）")
+            st.info("過去20戦の戦績データを取得しています...（高速モード）")
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -125,53 +125,8 @@ if check_password():
 
             for i, (horse_name, horse_id) in enumerate(horse_urls):
                 status_text.text(f"処理中: {horse_name} ({i+1}/{total_horses}頭目)")
-                
-                # --- ① 血統データの取得（3代・5代どちらの表でも絶対に見つける究極版） ---
-                url_prof = f"https://db.netkeiba.com/horse/{horse_id}/"
-                res_prof = requests.get(url_prof, headers=headers)
-                res_prof.encoding = 'euc-jp'
-                soup_prof = BeautifulSoup(res_prof.text, 'html.parser')
-                
-                sire, dam, bms = "不明", "不明", "不明"
-                
-                try:
-                    blood_table = soup_prof.select_one('table.blood_table')
-                    if blood_table:
-                        tds_sire_dam = []
-                        tds_bms = []
-                        
-                        for td in blood_table.find_all('td'):
-                            r_span = str(td.get('rowspan', '')).strip()
-                            # 16(5代血統表) と 4(3代血統表) の両方を父・母のマスとして認識
-                            if r_span in ['16', '4']:
-                                tds_sire_dam.append(td)
-                            # 8(5代血統表) と 2(3代血統表) の両方を祖父母のマスとして認識
-                            elif r_span in ['8', '2']:
-                                tds_bms.append(td)
-                                
-                        # 馬名だけを綺麗に抜き出す専用関数
-                        def extract_horse_name(td):
-                            a_tag = td.find('a')
-                            if a_tag:
-                                return a_tag.text.strip()
-                            text = td.text.strip()
-                            text = re.sub(r'\s+', ' ', text).strip()
-                            return text.split(' ')[0]
 
-                        # 父（0番目）と 母（1番目）
-                        if len(tds_sire_dam) >= 2:
-                            sire = extract_horse_name(tds_sire_dam[0])
-                            dam = extract_horse_name(tds_sire_dam[1])
-                            
-                        # 母父（祖父母4頭のうちの3番目）
-                        if len(tds_bms) >= 3:
-                            bms = extract_horse_name(tds_bms[2])
-                except Exception:
-                    pass
-                
-                time.sleep(1) # ブロック回避のための待機
-
-                # --- ② 過去戦績データの取得 ---
+                # 戦績ページへ直接アクセス
                 url_res = f"https://db.netkeiba.com/horse/result/{horse_id}/"
                 res_res = requests.get(url_res, headers=headers)
                 res_res.encoding = 'euc-jp'
@@ -230,18 +185,20 @@ if check_password():
                             else:
                                 agari = agari_time
 
-                        past_results.append([horse_name, sire, dam, bms, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
+                        # 血統（sire, dam, bms）を除外してリストに追加
+                        past_results.append([horse_name, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
                         
                         race_count += 1
                         if race_count >= 20: 
                             break
                             
-                time.sleep(1) # さらに1秒待機でサーバーブロックを完全回避
+                time.sleep(1) # サーバー負荷軽減の待機
                 progress_bar.progress((i + 1) / total_horses)
 
+            # CSVのヘッダーからも血統を削除
             with open(csv_past, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['馬名', '父', '母', '母父', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
+                writer.writerow(['馬名', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
                 writer.writerows(past_results)
 
             status_text.text("すべてのデータ取得が完了しました！")
