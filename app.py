@@ -20,26 +20,24 @@ def check_password():
         st.write("このアプリを利用するにはIDとパスワードが必要です。")
         
         user_id = st.text_input("ID")
-        password = st.text_input("パスワード", type="password") # 入力文字を「●●●」で隠す
+        password = st.text_input("パスワード", type="password")
         
         if st.button("ログイン"):
-            # Streamlitの裏設定（Secrets）に登録したID・PWと照合
             if user_id == st.secrets["app_user"]["id"] and password == st.secrets["app_user"]["password"]:
                 st.session_state.logged_in = True
-                st.rerun() # 画面をリロードしてメインアプリへ
+                st.rerun()
             else:
                 st.error("IDまたはパスワードが間違っています。")
         return False
     return True
 
 # ==========================================
-# メインのアプリ処理（ログイン成功時のみ実行される）
+# メインのアプリ処理
 # ==========================================
 if check_password():
     st.title("🏇 競馬データ取得Webアプリ")
     st.write("netkeibaの出馬表URLから、Gemini予想用の高精度データを取得します。")
     
-    # おまけ：ログアウトボタン
     if st.button("ログアウト"):
         st.session_state.logged_in = False
         st.rerun()
@@ -109,7 +107,8 @@ if check_password():
                         if horse_elem and 'href' in horse_elem.attrs:
                             match = re.search(r'\d{10}', horse_elem['href'])
                             if match:
-                                db_url = f"https://db.netkeiba.com/horse/result/{match.group(0)}/"
+                                # 【変更】血統表も取得できるよう、詳細ページではなくトップページを読みに行くよう修正
+                                db_url = f"https://db.netkeiba.com/horse/{match.group(0)}/"
                                 horse_urls.append((horse_name, db_url))
 
             with open(csv_shutuba, 'w', newline='', encoding='utf-8') as f:
@@ -121,7 +120,7 @@ if check_password():
                 st.download_button(label=f"📥 {csv_shutuba} をダウンロード", data=f, file_name=csv_shutuba, mime='text/csv')
 
             # ==========================================
-            # 2. 過去戦績データの取得
+            # 2. 過去戦績（＋血統）データの取得
             # ==========================================
             st.info("過去20戦のデータを取得しています...（約30秒〜1分かかります）")
             progress_bar = st.progress(0)
@@ -136,6 +135,23 @@ if check_password():
                 res_horse.encoding = 'euc-jp'
                 soup_horse = BeautifulSoup(res_horse.text, 'html.parser')
                 
+                # --- 【新規】血統データの取得 ---
+                sire = "不明"
+                dam = "不明"
+                bms = "不明"
+                blood_table = soup_horse.select_one('table.blood_table')
+                if blood_table:
+                    b_rows = blood_table.find_all('tr')
+                    if len(b_rows) >= 3:
+                        sire_td = b_rows[0].find('td')
+                        if sire_td: sire = sire_td.text.strip().replace('\n', '')
+                        
+                        dam_tds = b_rows[2].find_all('td')
+                        if len(dam_tds) >= 2:
+                            dam = dam_tds[0].text.strip().replace('\n', '')
+                            bms = dam_tds[1].text.strip().replace('\n', '')
+
+                # --- 過去戦績データの取得 ---
                 th_elements = soup_horse.select('table.db_h_race_results th')
                 col_map = {th.text.strip(): idx for idx, th in enumerate(th_elements)}
                 
@@ -189,7 +205,8 @@ if check_password():
                             else:
                                 agari = agari_time
 
-                        past_results.append([horse_name, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
+                        # 【修正】配列に「父」「母」「母父」を追加
+                        past_results.append([horse_name, sire, dam, bms, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
                         
                         race_count += 1
                         if race_count >= 20: 
@@ -200,7 +217,8 @@ if check_password():
 
             with open(csv_past, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['馬名', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
+                # 【修正】ヘッダーに「父」「母」「母父」を追加
+                writer.writerow(['馬名', '父', '母', '母父', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
                 writer.writerows(past_results)
 
             status_text.text("すべてのデータ取得が完了しました！")
