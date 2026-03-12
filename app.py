@@ -49,7 +49,6 @@ if check_password():
     # 実行ボタン
     if st.button("データ取得開始"):
         
-        # スマホ版URLをPC版に自動変換
         if race_url:
             race_url = race_url.replace("race.sp.netkeiba.com", "race.netkeiba.com")
 
@@ -72,7 +71,7 @@ if check_password():
             soup = BeautifulSoup(response.text, 'html.parser')
 
             horse_list = []
-            horse_urls = []
+            horse_urls = [] # ここには「馬名」と「馬のID」を保存します
 
             race_data01_text = soup.select_one('.RaceData01').text if soup.select_one('.RaceData01') else ""
             race_data02_text = soup.select_one('.RaceData02').text if soup.select_one('.RaceData02') else ""
@@ -107,9 +106,8 @@ if check_password():
                         if horse_elem and 'href' in horse_elem.attrs:
                             match = re.search(r'\d{10}', horse_elem['href'])
                             if match:
-                                # 【変更】血統表も取得できるよう、詳細ページではなくトップページを読みに行くよう修正
-                                db_url = f"https://db.netkeiba.com/horse/{match.group(0)}/"
-                                horse_urls.append((horse_name, db_url))
+                                # 【修正】馬のIDだけを記録しておく
+                                horse_urls.append((horse_name, match.group(0)))
 
             with open(csv_shutuba, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
@@ -122,24 +120,26 @@ if check_password():
             # ==========================================
             # 2. 過去戦績（＋血統）データの取得
             # ==========================================
-            st.info("過去20戦のデータを取得しています...（約30秒〜1分かかります）")
+            st.info("過去20戦のデータを取得しています...（約1分かかります）")
             progress_bar = st.progress(0)
             status_text = st.empty()
             
             past_results = []
             total_horses = len(horse_urls)
 
-            for i, (horse_name, url) in enumerate(horse_urls):
+            for i, (horse_name, horse_id) in enumerate(horse_urls):
                 status_text.text(f"処理中: {horse_name} ({i+1}/{total_horses}頭目)")
-                res_horse = requests.get(url, headers=headers)
-                res_horse.encoding = 'euc-jp'
-                soup_horse = BeautifulSoup(res_horse.text, 'html.parser')
                 
-                # --- 【新規】血統データの取得 ---
+                # --- ① 血統データの取得（馬のトップページから） ---
+                top_url = f"https://db.netkeiba.com/horse/{horse_id}/"
+                res_top = requests.get(top_url, headers=headers)
+                res_top.encoding = 'euc-jp'
+                soup_top = BeautifulSoup(res_top.text, 'html.parser')
+                
                 sire = "不明"
                 dam = "不明"
                 bms = "不明"
-                blood_table = soup_horse.select_one('table.blood_table')
+                blood_table = soup_top.select_one('table.blood_table')
                 if blood_table:
                     b_rows = blood_table.find_all('tr')
                     if len(b_rows) >= 3:
@@ -150,8 +150,15 @@ if check_password():
                         if len(dam_tds) >= 2:
                             dam = dam_tds[0].text.strip().replace('\n', '')
                             bms = dam_tds[1].text.strip().replace('\n', '')
+                
+                time.sleep(1) # サーバーに優しく（1秒待つ）
 
-                # --- 過去戦績データの取得 ---
+                # --- ② 過去戦績データの取得（詳細な結果ページから） ---
+                result_url = f"https://db.netkeiba.com/horse/result/{horse_id}/"
+                res_result = requests.get(result_url, headers=headers)
+                res_result.encoding = 'euc-jp'
+                soup_horse = BeautifulSoup(res_result.text, 'html.parser')
+                
                 th_elements = soup_horse.select('table.db_h_race_results th')
                 col_map = {th.text.strip(): idx for idx, th in enumerate(th_elements)}
                 
@@ -171,58 +178,4 @@ if check_password():
                         waku = tds[col_map.get('枠番', 7)].text.strip()
                         umaban = tds[col_map.get('馬番', 8)].text.strip()
                         odds = tds[col_map.get('オッズ', 9)].text.strip()
-                        ninki = tds[col_map.get('人気', 10)].text.strip()
-                        chakujun = tds[col_map.get('着順', 11)].text.strip()
-                        jockey = tds[col_map.get('騎手', 12)].text.strip()
-                        kinryo = tds[col_map.get('斤量', 13)].text.strip()
-                        kyori = tds[col_map.get('距離', 14)].text.strip()
-                        baba = tds[col_map.get('馬場', 15)].text.strip()
-                        time_str = tds[col_map.get('タイム', 17)].text.strip()
-                        chakusa = tds[col_map.get('着差', 18)].text.strip()
-                        
-                        tsuuka = tds[col_map.get('通過', 20)].text.strip()
-                        if tsuuka != "":
-                            tsuuka = f"'{tsuuka}"
-                        else:
-                            tsuuka = "直線"
-                            
-                        pace = tds[col_map.get('ペース', 21)].text.strip()
-                        bataiju = tds[col_map.get('馬体重', 23)].text.strip()
-                        
-                        agari = ""
-                        agari_idx = col_map.get('上り', 22)
-                        if len(tds) > agari_idx:
-                            agari_td = tds[agari_idx]
-                            agari_time = agari_td.text.strip()
-                            
-                            classes = agari_td.get('class', [])
-                            if 'rank_1' in classes:
-                                agari = f"{agari_time}(1位)"
-                            elif 'rank_2' in classes:
-                                agari = f"{agari_time}(2位)"
-                            elif 'rank_3' in classes:
-                                agari = f"{agari_time}(3位)"
-                            else:
-                                agari = agari_time
-
-                        # 【修正】配列に「父」「母」「母父」を追加
-                        past_results.append([horse_name, sire, dam, bms, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
-                        
-                        race_count += 1
-                        if race_count >= 20: 
-                            break
-                            
-                time.sleep(2)
-                progress_bar.progress((i + 1) / total_horses)
-
-            with open(csv_past, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                # 【修正】ヘッダーに「父」「母」「母父」を追加
-                writer.writerow(['馬名', '父', '母', '母父', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
-                writer.writerows(past_results)
-
-            status_text.text("すべてのデータ取得が完了しました！")
-            st.success("取得完了！下のボタンからダウンロードしてください。")
-            
-            with open(csv_past, 'rb') as f:
-                st.download_button(label=f"📥 {csv_past} をダウンロード", data=f, file_name=csv_past, mime='text/csv')
+                        ninki = tds[col_map
