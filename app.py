@@ -71,17 +71,16 @@ if check_password():
         if race_url:
             race_url = race_url.replace("race.sp.netkeiba.com", "race.netkeiba.com")
 
-        # URLから「12桁のレースID」を探し出し、先頭10桁（日付と場所）を基準IDとして抜き出す
         match_id = re.search(r'race_id=(\d{12})', race_url)
         if not match_id and "race_id=" not in race_url:
-            match_id = re.search(r'(\d{12})', race_url) # URL直書きへのフォールバック
+            match_id = re.search(r'(\d{12})', race_url)
 
         if not match_id:
             st.error("【エラー】URLから12桁のレースIDが見つかりません。正しいURLを入力してください。")
         elif start_race > end_race:
             st.error("【エラー】開始レースは、終了レース以下の数字にしてください。")
         else:
-            base_id = match_id.group(1)[:10] # 先頭10桁
+            base_id = match_id.group(1)[:10] 
             
             if not file_prefix.strip():
                 file_prefix = f"一括取得_{base_id}"
@@ -102,7 +101,6 @@ if check_password():
             shutuba_progress = st.progress(0)
             
             for idx, r_num in enumerate(range(start_race, end_race + 1)):
-                # レース番号(1〜12)を2桁のゼロ埋め(01〜12)にしてURLを作成
                 current_race_id = f"{base_id}{r_num:02d}"
                 current_url = f"https://race.netkeiba.com/race/shutuba.html?race_id={current_race_id}"
                 
@@ -112,7 +110,6 @@ if check_password():
                 
                 rows = soup.select('.RaceTableArea tr.HorseList')
                 if not rows:
-                    # そのレースが存在しない場合（11Rまでしかない等）はスキップ
                     shutuba_progress.progress((idx + 1) / total_races)
                     time.sleep(1)
                     continue
@@ -127,6 +124,9 @@ if check_password():
                 race_dist = dist_match.group(0) if dist_match else "不明"
                 race_baba = baba_match.group(1) if baba_match else "不明"
                 race_place = place_match.group(0) if place_match else "不明"
+                
+                # レースの表示用テキスト（例: "11R"）
+                r_num_str = f"{r_num}R"
 
                 for row in rows:
                     tds = row.find_all('td')
@@ -144,25 +144,24 @@ if check_password():
                         ninki = tds[10].text.strip()
                         
                         if horse_name:
-                            # 左端に「何レース目か」を追加して1つのリストに合流させる
-                            all_horse_list.append([f"{r_num}R", race_place, race_dist, race_baba, waku, umaban, horse_name, seirei, kinryo, jockey, kyusha, bataiju, odds, ninki])
+                            all_horse_list.append([r_num_str, race_place, race_dist, race_baba, waku, umaban, horse_name, seirei, kinryo, jockey, kyusha, bataiju, odds, ninki])
                             
                             if horse_elem and 'href' in horse_elem.attrs:
                                 match = re.search(r'\d{10}', horse_elem['href'])
                                 if match:
-                                    all_horse_urls.append((horse_name, match.group(0)))
+                                    # 【追加】馬の名前やIDだけでなく、レース番号と競馬場も一緒に記憶させる
+                                    all_horse_urls.append((r_num_str, race_place, horse_name, match.group(0)))
                 
                 shutuba_progress.progress((idx + 1) / total_races)
-                time.sleep(1) # サーバー負荷軽減
+                time.sleep(1)
 
-            # 出馬表CSVの書き込み（ヘッダーに「レース」列を追加）
             with open(csv_shutuba, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['レース', '競馬場', '距離', '馬場', '枠', '馬番', '馬名', '性齢', '斤量', '騎手', '厩舎', '馬体重', 'オッズ', '人気'])
                 writer.writerows(all_horse_list)
 
             # ==========================================
-            # 2. 過去戦績データの取得（全レースの馬を一括処理）
+            # 2. 過去戦績データの取得
             # ==========================================
             total_horses = len(all_horse_urls)
             st.info(f"📊 続いて、全{total_horses}頭の過去20戦データを一気に取得します！（約{total_horses}秒かかります）")
@@ -171,8 +170,9 @@ if check_password():
             
             all_past_results = []
 
-            for i, (horse_name, horse_id) in enumerate(all_horse_urls):
-                status_text.text(f"処理中: {horse_name} ({i+1}/{total_horses}頭目)")
+            # 【追加】記憶させておいたレース番号(target_r_num)と競馬場(target_place)を取り出す
+            for i, (target_r_num, target_place, horse_name, horse_id) in enumerate(all_horse_urls):
+                status_text.text(f"処理中: {target_place}{target_r_num} {horse_name} ({i+1}/{total_horses}頭目)")
 
                 url_res = f"https://db.netkeiba.com/horse/result/{horse_id}/"
                 res_res = requests.get(url_res, headers=headers)
@@ -232,7 +232,8 @@ if check_password():
                             else:
                                 agari = agari_time
 
-                        all_past_results.append([horse_name, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
+                        # 【追加】一番左に「出走レース」「出走競馬場」をセットする
+                        all_past_results.append([target_r_num, target_place, horse_name, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
                         
                         race_count += 1
                         if race_count >= 20: 
@@ -241,15 +242,14 @@ if check_password():
                 time.sleep(1)
                 past_progress_bar.progress((i + 1) / total_horses)
 
-            # 戦績CSVの書き込み
+            # 【追加】CSVのヘッダーにも「出走レース」「出走競馬場」の列を追加
             with open(csv_past, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['馬名', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
+                writer.writerow(['出走レース', '出走競馬場', '馬名', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
                 writer.writerows(all_past_results)
 
             status_text.text("すべてのデータ取得が完了しました！")
             
-            # データを金庫に保存
             with open(csv_shutuba, 'rb') as f:
                 st.session_state.csv_shutuba_data = f.read()
             st.session_state.csv_shutuba_name = csv_shutuba
