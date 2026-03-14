@@ -8,6 +8,14 @@ import re
 # --- Webアプリの画面設定 ---
 st.set_page_config(page_title="競馬データ取得アプリ", page_icon="🏇")
 
+# --- ダウンロード保持用の裏金庫（セッションステート） ---
+if "data_fetched" not in st.session_state:
+    st.session_state.data_fetched = False
+    st.session_state.csv_shutuba_data = None
+    st.session_state.csv_past_data = None
+    st.session_state.csv_shutuba_name = ""
+    st.session_state.csv_past_name = ""
+
 # ==========================================
 # 🔒 ログイン機能
 # ==========================================
@@ -40,6 +48,8 @@ if check_password():
     
     if st.button("ログアウト"):
         st.session_state.logged_in = False
+        # ログアウト時は金庫のデータもリセットする
+        st.session_state.data_fetched = False
         st.rerun()
 
     # 入力フォーム
@@ -48,6 +58,9 @@ if check_password():
 
     # 実行ボタン
     if st.button("データ取得開始"):
+        
+        # 毎回新しく取得する際は金庫を一度リセット
+        st.session_state.data_fetched = False
         
         if race_url:
             race_url = race_url.replace("race.sp.netkeiba.com", "race.netkeiba.com")
@@ -114,7 +127,7 @@ if check_password():
                 writer.writerows(horse_list)
 
             # ==========================================
-            # 2. 過去戦績データの取得（血統なし・高速化）
+            # 2. 過去戦績データの取得
             # ==========================================
             st.info("過去20戦の戦績データを取得しています...（高速モード）")
             progress_bar = st.progress(0)
@@ -126,7 +139,6 @@ if check_password():
             for i, (horse_name, horse_id) in enumerate(horse_urls):
                 status_text.text(f"処理中: {horse_name} ({i+1}/{total_horses}頭目)")
 
-                # 戦績ページへ直接アクセス
                 url_res = f"https://db.netkeiba.com/horse/result/{horse_id}/"
                 res_res = requests.get(url_res, headers=headers)
                 res_res.encoding = 'euc-jp'
@@ -185,27 +197,51 @@ if check_password():
                             else:
                                 agari = agari_time
 
-                        # 血統（sire, dam, bms）を除外してリストに追加
                         past_results.append([horse_name, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
                         
                         race_count += 1
                         if race_count >= 20: 
                             break
                             
-                time.sleep(1) # サーバー負荷軽減の待機
+                time.sleep(1)
                 progress_bar.progress((i + 1) / total_horses)
 
-            # CSVのヘッダーからも血統を削除
             with open(csv_past, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['馬名', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
                 writer.writerows(past_results)
 
             status_text.text("すべてのデータ取得が完了しました！")
-            st.success("取得完了！下のボタンからダウンロードしてください。")
             
+            # --- 【重要】取得したデータを金庫にしまう ---
             with open(csv_shutuba, 'rb') as f:
-                st.download_button(label=f"📥 {csv_shutuba} をダウンロード", data=f, file_name=csv_shutuba, mime='text/csv')
-
+                st.session_state.csv_shutuba_data = f.read()
+            st.session_state.csv_shutuba_name = csv_shutuba
+            
             with open(csv_past, 'rb') as f:
-                st.download_button(label=f"📥 {csv_past} をダウンロード", data=f, file_name=csv_past, mime='text/csv')
+                st.session_state.csv_past_data = f.read()
+            st.session_state.csv_past_name = csv_past
+            
+            # 完了フラグを立てる
+            st.session_state.data_fetched = True
+
+    # ==========================================
+    # 3. ダウンロードボタンの表示（ボタンの外側に出す）
+    # ==========================================
+    if st.session_state.data_fetched:
+        st.success("✨ 取得完了！下のボタンからダウンロードしてください。")
+        st.write("※どちらを先にダウンロードしても、画面はリセットされません。")
+        
+        st.download_button(
+            label=f"📥 【1】出馬表データ をダウンロード", 
+            data=st.session_state.csv_shutuba_data, 
+            file_name=st.session_state.csv_shutuba_name, 
+            mime='text/csv'
+        )
+
+        st.download_button(
+            label=f"📥 【2】過去戦績データ をダウンロード", 
+            data=st.session_state.csv_past_data, 
+            file_name=st.session_state.csv_past_name, 
+            mime='text/csv'
+        )
