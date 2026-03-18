@@ -51,7 +51,7 @@ if check_password():
         st.session_state.data_fetched = False
         st.rerun()
 
-    # --- 入力フォーム（複数レース対応版） ---
+    # --- 入力フォーム（複数レース・過去走数指定版） ---
     st.markdown("### 📝 取得設定")
     race_url = st.text_input("基準となる出馬表URL (何レース目のURLでもOKです)", placeholder="例: https://race.netkeiba.com/race/shutuba.html?race_id=202607010211")
     
@@ -60,6 +60,9 @@ if check_password():
         start_race = st.number_input("開始レース", min_value=1, max_value=12, value=1)
     with col2:
         end_race = st.number_input("終了レース", min_value=1, max_value=12, value=12)
+
+    # 【新規追加】過去何走分を取得するかユーザーが決められるフォーム
+    past_race_limit = st.number_input("過去戦績の取得数 (1頭あたり何走分取得するか)", min_value=1, max_value=100, value=20)
 
     file_prefix = st.text_input("出力するCSVの名前", placeholder="例: 20260315_中京競馬場")
 
@@ -86,7 +89,8 @@ if check_password():
                 file_prefix = f"一括取得_{base_id}"
                 
             csv_shutuba = f"{file_prefix}_{start_race}Rから{end_race}R_出走馬データ.csv"
-            csv_past = f"{file_prefix}_{start_race}Rから{end_race}R_戦績データ.csv"
+            # 【変更】出力されるファイル名にも、取得した過去走の数を記載
+            csv_past = f"{file_prefix}_{start_race}Rから{end_race}R_戦績データ_過去{past_race_limit}戦.csv"
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
 
             all_horse_list = []
@@ -125,7 +129,6 @@ if check_password():
                 race_baba = baba_match.group(1) if baba_match else "不明"
                 race_place = place_match.group(0) if place_match else "不明"
                 
-                # レースの表示用テキスト（例: "11R"）
                 r_num_str = f"{r_num}R"
 
                 for row in rows:
@@ -149,7 +152,6 @@ if check_password():
                             if horse_elem and 'href' in horse_elem.attrs:
                                 match = re.search(r'\d{10}', horse_elem['href'])
                                 if match:
-                                    # 【追加】馬の名前やIDだけでなく、レース番号と競馬場も一緒に記憶させる
                                     all_horse_urls.append((r_num_str, race_place, horse_name, match.group(0)))
                 
                 shutuba_progress.progress((idx + 1) / total_races)
@@ -164,13 +166,13 @@ if check_password():
             # 2. 過去戦績データの取得
             # ==========================================
             total_horses = len(all_horse_urls)
-            st.info(f"📊 続いて、全{total_horses}頭の過去20戦データを一気に取得します！（約{total_horses}秒かかります）")
+            # 【変更】画面の案内文にも指定した取得数を反映
+            st.info(f"📊 続いて、全{total_horses}頭の過去{past_race_limit}戦データを一気に取得します！（約{total_horses}秒かかります）")
             past_progress_bar = st.progress(0)
             status_text = st.empty()
             
             all_past_results = []
 
-            # 【追加】記憶させておいたレース番号(target_r_num)と競馬場(target_place)を取り出す
             for i, (target_r_num, target_place, horse_name, horse_id) in enumerate(all_horse_urls):
                 status_text.text(f"処理中: {target_place}{target_r_num} {horse_name} ({i+1}/{total_horses}頭目)")
 
@@ -232,17 +234,16 @@ if check_password():
                             else:
                                 agari = agari_time
 
-                        # 【追加】一番左に「出走レース」「出走競馬場」をセットする
                         all_past_results.append([target_r_num, target_place, horse_name, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
                         
                         race_count += 1
-                        if race_count >= 20: 
+                        # 【変更】ユーザーが指定した取得数(past_race_limit)に達したら終了する
+                        if race_count >= past_race_limit: 
                             break
                             
                 time.sleep(1)
                 past_progress_bar.progress((i + 1) / total_horses)
 
-            # 【追加】CSVのヘッダーにも「出走レース」「出走競馬場」の列を追加
             with open(csv_past, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['出走レース', '出走競馬場', '馬名', '日付', '競馬場', 'レース名', '頭数', '枠番', '馬番', 'オッズ', '人気', '着順', '騎手', '斤量', '距離', '馬場', 'タイム', '着差', '通過', 'ペース', '上り', '馬体重'])
