@@ -11,9 +11,14 @@ st.set_page_config(page_title="AI競馬予想エンジン", page_icon="🧠", la
 # ==========================================
 def preprocess_data(df_shutuba, df_past):
     past = df_past.copy()
-    past['着順_数値'] = pd.to_numeric(past['着順'], errors='coerce').fillna(99).astype(int)
-    past['着差_数値'] = pd.to_numeric(past['着差'], errors='coerce').fillna(9.9)
+    past['着順_数値'] = pd.to_numeric(past.get('着順', 99), errors='coerce').fillna(99).astype(int)
     
+    # KeyError対策：古いCSVで列が存在しない場合でもエラーで止めない
+    if '着差' in past.columns:
+        past['着差_数値'] = pd.to_numeric(past['着差'], errors='coerce').fillna(9.9)
+    else:
+        past['着差_数値'] = 9.9
+        
     def extract_corner(x, pos='first'):
         if pd.isna(x) or not isinstance(x, str): return np.nan
         x = x.replace("'", "")
@@ -24,17 +29,25 @@ def preprocess_data(df_shutuba, df_past):
         except ValueError:
             return np.nan
 
-    past['初角位置'] = past['通過'].apply(lambda x: extract_corner(x, 'first'))
-    past['上り_順位'] = past['上り'].str.extract(r'\((\d+)位\)').astype(float)
-    past['コース種別'] = past['距離'].str.extract(r'(芝|ダ|障)')
-    past['距離_数値'] = past['距離'].str.extract(r'(\d+)').astype(float)
+    if '通過' in past.columns:
+        past['初角位置'] = past['通過'].apply(lambda x: extract_corner(x, 'first'))
+    else:
+        past['初角位置'] = np.nan
+
+    if '上り' in past.columns:
+        past['上り_順位'] = past['上り'].astype(str).str.extract(r'\((\d+)位\)').astype(float)
+    else:
+        past['上り_順位'] = np.nan
+
+    past['コース種別'] = past.get('距離', '').astype(str).str.extract(r'(芝|ダ|障)')
+    past['距離_数値'] = past.get('距離', '').astype(str).str.extract(r'(\d+)').astype(float)
 
     shutuba = df_shutuba.copy()
-    shutuba['コース種別'] = shutuba['距離'].str.extract(r'(芝|ダ|障)')
-    shutuba['距離_数値'] = shutuba['距離'].str.extract(r'(\d+)').astype(float)
-    shutuba['枠'] = pd.to_numeric(shutuba['枠'], errors='coerce')
-    shutuba['馬番'] = pd.to_numeric(shutuba['馬番'], errors='coerce')
-    shutuba['斤量_数値'] = pd.to_numeric(shutuba['斤量'], errors='coerce')
+    shutuba['コース種別'] = shutuba.get('距離', '').astype(str).str.extract(r'(芝|ダ|障)')
+    shutuba['距離_数値'] = shutuba.get('距離', '').astype(str).str.extract(r'(\d+)').astype(float)
+    shutuba['枠'] = pd.to_numeric(shutuba.get('枠', np.nan), errors='coerce')
+    shutuba['馬番'] = pd.to_numeric(shutuba.get('馬番', np.nan), errors='coerce')
+    shutuba['斤量_数値'] = pd.to_numeric(shutuba.get('斤量', np.nan), errors='coerce')
 
     return shutuba, past
 
@@ -58,12 +71,13 @@ class HorseEvaluator:
         current_dist = self.race.get('距離_数値', 1600)
         recent_5 = self.past.head(5)
         if len(recent_5) > 0:
-            if recent_5[(recent_5['レース名'].str.contains('GI|G1', na=False)) & (recent_5['着順_数値'] <= 5)].shape[0] > 0:
-                score_a += 5; self.log('A2', 'G1(5着内)実績', 5)
-            elif recent_5[(recent_5['レース名'].str.contains('GII|G2', na=False)) & (recent_5['着順_数値'] <= 5)].shape[0] > 0:
-                score_a += 3; self.log('A2', 'G2(5着内)実績', 3)
-            elif recent_5[(recent_5['レース名'].str.contains('GIII|G3', na=False)) & (recent_5['着順_数値'] <= 5)].shape[0] > 0:
-                score_a += 2; self.log('A2', 'G3(5着内)実績', 2)
+            if 'レース名' in recent_5.columns:
+                if recent_5[(recent_5['レース名'].astype(str).str.contains('GI|G1', na=False)) & (recent_5['着順_数値'] <= 5)].shape[0] > 0:
+                    score_a += 5; self.log('A2', 'G1(5着内)実績', 5)
+                elif recent_5[(recent_5['レース名'].astype(str).str.contains('GII|G2', na=False)) & (recent_5['着順_数値'] <= 5)].shape[0] > 0:
+                    score_a += 3; self.log('A2', 'G2(5着内)実績', 3)
+                elif recent_5[(recent_5['レース名'].astype(str).str.contains('GIII|G3', na=False)) & (recent_5['着順_数値'] <= 5)].shape[0] > 0:
+                    score_a += 2; self.log('A2', 'G3(5着内)実績', 2)
         
         if len(self.past[(self.past['距離_数値'] >= current_dist) & (self.past['着順_数値'] > 1) & (self.past['着差_数値'] <= 0.5) & (self.past['上り_順位'] <= 3)]) > 0:
             score_a += 4; self.log('A4', '同距離以上で僅差＆上がり上位', 4)
@@ -81,10 +95,10 @@ class HorseEvaluator:
         course_type = self.race.get('コース種別', '芝')
         waku = self.horse.get('枠', 4)
 
-        if len(self.past[(self.past['競馬場'] == current_place) & (self.past['距離_数値'] == current_dist) & (self.past['着順_数値'] == 1)]) > 0:
+        if '競馬場' in self.past.columns and len(self.past[(self.past['競馬場'] == current_place) & (self.past['距離_数値'] == current_dist) & (self.past['着順_数値'] == 1)]) > 0:
             score_b += 5; self.log('B1', 'コース適性(同条件勝利歴)', 5)
 
-        if len(self.past[(self.past['馬場'] == current_baba) & (self.past['着順_数値'] == 1)]) > 0:
+        if '馬場' in self.past.columns and len(self.past[(self.past['馬場'] == current_baba) & (self.past['着順_数値'] == 1)]) > 0:
             score_b += 4; self.log('B5', f'当日馬場({current_baba})勝利歴', 4)
 
         if course_type == 'ダ' and current_dist <= 1400:
@@ -115,7 +129,7 @@ class HorseEvaluator:
             if len(self.past) >= 3 and (self.past.head(3)['初角位置'] <= 4).all():
                 score_e -= 10; self.log('E1', '激流巻き込まれ・自滅リスク', -10)
 
-        if self.race.get('course_type') == '芝' and self.race.get('short_to_first_corner') and self.horse.get('枠') >= 7:
+        if self.race.get('course_type') == '芝' and self.race.get('short_to_first_corner') and self.horse.get('枠', 0) >= 7:
             score_e -= 4; self.log('E4', '芝: 外枠距離損リスク', -4)
         elif self.race.get('course_type') == 'ダート':
             self.log('E4', 'ダートのため外枠距離損免除', 0)
@@ -126,7 +140,7 @@ class HorseEvaluator:
         score_f = 0
         if len(self.past) > 0:
             prev_race = self.past.iloc[0]
-            if prev_race['着順_数値'] >= 10 and str(prev_race['コース種別']) != self.race.get('コース種別'):
+            if prev_race['着順_数値'] >= 10 and str(prev_race['コース種別']) != str(self.race.get('コース種別')):
                 if len(self.past[(self.past['コース種別'] == self.race.get('コース種別')) & (self.past['着順_数値'] == 1)]) > 0:
                     score_f += 10; self.log('F7', '適性バウンドバック(馬場替わりリセット)', 10)
         self.scores['F'] = min(score_f, 30)
@@ -159,11 +173,12 @@ if uploaded_shutuba is not None and uploaded_past is not None:
     df_shutuba, df_past = preprocess_data(raw_shutuba, raw_past)
 
     # レース選択UI（複数レースが含まれている場合に対応）
-    race_list = df_shutuba['レース'].unique()
-    target_race = st.selectbox("🎯 予想するレースを選択してください", race_list)
-    
-    # 選択したレースでデータを絞り込み
-    target_shutuba = df_shutuba[df_shutuba['レース'] == target_race]
+    if 'レース' in df_shutuba.columns:
+        race_list = df_shutuba['レース'].unique()
+        target_race = st.selectbox("🎯 予想するレースを選択してください", race_list)
+        target_shutuba = df_shutuba[df_shutuba['レース'] == target_race]
+    else:
+        target_shutuba = df_shutuba
     
     st.markdown("---")
     st.markdown("### 🔍 当日の環境・バイアス設定（AIへの指示）")
@@ -181,15 +196,16 @@ if uploaded_shutuba is not None and uploaded_past is not None:
             # 展開予想用の逃げ・先行馬カウント（過去3走で初角3番手以内の経験がある馬の数）
             front_runners_count = 0
             for _, horse_row in target_shutuba.iterrows():
-                past_data = df_past[df_past['馬名'] == horse_row['馬名']]
-                if len(past_data) > 0 and (past_data.head(3)['初角位置'] <= 3).any():
-                    front_runners_count += 1
+                if '馬名' in horse_row and '馬名' in df_past.columns:
+                    past_data = df_past[df_past['馬名'] == horse_row['馬名']]
+                    if len(past_data) > 0 and (past_data.head(3)['初角位置'] <= 3).any():
+                        front_runners_count += 1
 
             race_context = {
-                '競馬場': target_shutuba.iloc[0]['競馬場'],
-                '距離_数値': target_shutuba.iloc[0]['距離_数値'],
-                '馬場': target_shutuba.iloc[0]['馬場'],
-                'コース種別': target_shutuba.iloc[0]['コース種別'],
+                '競馬場': target_shutuba.iloc[0].get('競馬場', ''),
+                '距離_数値': target_shutuba.iloc[0].get('距離_数値', 1600),
+                '馬場': target_shutuba.iloc[0].get('馬場', '良'),
+                'コース種別': target_shutuba.iloc[0].get('コース種別', '芝'),
                 'track_bias': track_bias,
                 'pace_forecast': pace_forecast,
                 'short_to_first_corner': short_to_first_corner,
@@ -198,15 +214,17 @@ if uploaded_shutuba is not None and uploaded_past is not None:
 
             results = []
             for index, horse_row in target_shutuba.iterrows():
-                past_data = df_past[df_past['馬名'] == horse_row['馬名']]
+                if '馬名' in horse_row and '馬名' in df_past.columns:
+                    past_data = df_past[df_past['馬名'] == horse_row['馬名']]
+                else:
+                    past_data = pd.DataFrame() # 馬名で紐づけられない場合の空データ
+                    
                 evaluator = HorseEvaluator(horse_row, past_data, race_context)
                 total_score = evaluator.calculate_total()
                 
                 results.append({
-                    "馬番": horse_row['馬番'],
-                    "馬名": horse_row['馬名'],
-                    "オッズ": horse_row['オッズ'],
-                    "人気": horse_row['人気'],
+                    "馬番": horse_row.get('馬番', index+1),
+                    "馬名": horse_row.get('馬名', f"馬{index+1}"),
                     "基礎スコア": total_score,
                     "加点・減点ログ": " / ".join(evaluator.details) if evaluator.details else "特筆すべき条件合致なし"
                 })
@@ -222,17 +240,17 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                 
             df_results['ランク'] = [assign_rank(i, row['基礎スコア']) for i, row in df_results.iterrows()]
             
-            # カラムの並び替え
-            df_results = df_results[['ランク', '馬番', '馬名', '基礎スコア', 'オッズ', '人気', '加点・減点ログ']]
+            # カラムの並び替え（オッズと人気を除外）
+            df_results = df_results[['ランク', '馬番', '馬名', '基礎スコア', '加点・減点ログ']]
 
             st.success(f"予想完了！ (想定逃げ・先行馬: {front_runners_count}頭)")
             st.dataframe(df_results, use_container_width=True)
 
             # --- 買い目フォーメーションの自動提案 ---
             st.markdown("### 🎫 推奨買い目フォーメーション")
-            s_horses = df_results[df_results['ランク'].str.contains('S')]['馬番'].tolist()
-            a_horses = df_results[df_results['ランク'].str.contains('A')]['馬番'].tolist()
-            b_horses = df_results[df_results['ランク'].str.contains('B')]['馬番'].tolist()
+            s_horses = df_results[df_results['ランク'].str.contains('S')]['馬番'].dropna().astype(int).tolist()
+            a_horses = df_results[df_results['ランク'].str.contains('A')]['馬番'].dropna().astype(int).tolist()
+            b_horses = df_results[df_results['ランク'].str.contains('B')]['馬番'].dropna().astype(int).tolist()
 
             if len(s_horses) == 1:
                 st.info(f"**【3連複 1頭軸流し】**\n軸: {s_horses[0]}\n相手: {', '.join(map(str, a_horses + b_horses))}")
