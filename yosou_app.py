@@ -101,7 +101,7 @@ class HorseEvaluator:
         self.baba = self.race.get('馬場', '良') 
         self.is_hinba = self.race.get('is_hinba_only', False)
 
-        # ログに基本情報を出力（これはそのまま残す）
+        # ログに基本情報を出力
         self.details.append(f"【レース環境】 {self.c_type}戦 / 初角距離[{self.race.get('corner_len')}] / 芝スタート[{self.race.get('is_shiba_start')}]")
         
         self.base_kinryo_standard = 54 if self.is_hinba else (56 if '牝' in self.sex_age else 58)
@@ -240,8 +240,8 @@ class HorseEvaluator:
 
         if len(self.past[(self.past['競馬場'] == self.keibajo) & (self.past['距離_数値'] == self.dist) & (self.past['着順_数値'] <= 3) & (self.past['レース名'].astype(str).str.contains('G', na=False))]) > 0:
             score_b = max(score_b, 15); 
-            if score_b == 15: # 下限が適用された時だけログ
-                self.log('B2', 'リピーター絶対保護による下限適用', 0, True)
+            if score_b == 15: 
+                self.log('B2', 'リピーター絶対保護による下限適用', 0, True) # これだけは0点でも出す（下限補正の証明のため）
 
         self.scores['B'] = min(score_b, 25)
 
@@ -397,7 +397,16 @@ class HorseEvaluator:
 # ==========================================
 # 4. Streamlit UI 画面構築
 # ==========================================
-st.title("🧠 AI競馬予想エンジン（UI・ログ最適化版 Ver.1.3）")
+st.title("🧠 AI競馬予想エンジン（CSV読込対応・UI最適化版 Ver.1.3.1）")
+
+# --- CSV読み込み関数（文字コード自動判定付き） ---
+def load_csv(uploaded_file):
+    try:
+        uploaded_file.seek(0)
+        return pd.read_csv(uploaded_file, encoding='utf-8')
+    except UnicodeDecodeError:
+        uploaded_file.seek(0)
+        return pd.read_csv(uploaded_file, encoding='cp932')
 
 col_file1, col_file2 = st.columns(2)
 with col_file1:
@@ -406,8 +415,10 @@ with col_file2:
     uploaded_past = st.file_uploader("📥 過去戦績CSV", type=['csv'])
 
 if uploaded_shutuba is not None and uploaded_past is not None:
-    raw_shutuba = pd.read_csv(uploaded_shutuba)
-    raw_past = pd.read_csv(uploaded_past)
+    # 修正した関数でCSVを読み込む
+    raw_shutuba = load_csv(uploaded_shutuba)
+    raw_past = load_csv(uploaded_past)
+    
     df_shutuba, df_past = preprocess_data(raw_shutuba, raw_past)
 
     if 'レース' in df_shutuba.columns:
@@ -523,12 +534,13 @@ if uploaded_shutuba is not None and uploaded_past is not None:
             df_summary = df_results[['ランク', '馬番', '馬名', '基礎スコア']]
 
             st.success(f"【判定完了】自動コース判定: 芝スタート[{is_shiba_start}] / 初角距離[{corner_len}] | 逃げ馬候補 {len(nige_horses_waku)}頭 -> 自動設定ペース: {auto_pace}")
-            st.dataframe(df_summary, use_container_width=True)
+            st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
             # ✅ テーブルの下に、各馬の「詳細ログ」をアコーディオン（スクロール）で表示
             st.markdown("### 📝 各馬の評価ログ詳細（クリックで展開）")
             for _, row in df_results.iterrows():
-                with st.expander(f"【{row['ランク']}】 {row['馬番']}番 {row['馬名']} (スコア: {row['基礎スコア']}点)"):
+                # 見出しは馬名やスコアなどシンプルに
+                with st.expander(f"【{row['ランク']}】 {int(row['馬番'])}番 {row['馬名']} (スコア: {row['基礎スコア']}点)"):
                     st.code(row['加点・減点ログ'], language="text")
 
             # --- 買い目フォーメーションの自動提案 ---
