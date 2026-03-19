@@ -55,6 +55,10 @@ def preprocess_data(df_shutuba, df_past):
     # 🌟 追加: 「中止」「除外」「取消」が含まれる行（レース）をデータから完全に除外する
     past = past[~past.get('着順', pd.Series(dtype=str)).astype(str).str.contains('中止|除外|取消', na=False)]
     
+    # 🌟 追加: netkeiba特有の「不」を「不良」に統一（これで以降の道悪判定が全て正常に機能します）
+    if '馬場' in past.columns:
+        past['馬場'] = past['馬場'].astype(str).replace('不', '不良')
+        
     past['着順_数値'] = pd.to_numeric(past.get('着順', 99), errors='coerce').fillna(99).astype(int)
     past['着差_数値'] = pd.to_numeric(past.get('着差', 9.9), errors='coerce').fillna(9.9)
     # ✅ 追加: 出走頭数を数値化（展開割合の計算に使用）
