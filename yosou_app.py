@@ -238,7 +238,8 @@ class HorseEvaluator:
 
         steep_courses = ['中山', '阪神', '中京']
         if self.keibajo in steep_courses and len(self.past[(self.past['競馬場'].isin(steep_courses)) & (self.past['上り_順位'] <= 3) & (self.past['着順_数値'] <= 2)]) > 0:
-            score_b += 4; self.log('B17', '急坂＋長直線＋過去急坂上がり上位', 4, True)
+            # 🌟 修正: 波乱を呼ぶ重要指標のため、加点を4点から7点に増強
+            score_b += 7; self.log('B17', '急坂＋長直線＋過去急坂上がり上位', 7, True)
 
         flat_courses = ['京都', '小倉', '新潟', '札幌', '函館', '福島']
         if self.keibajo in flat_courses and len(self.past[(self.past['競馬場'].isin(flat_courses)) & (self.past['初角位置'] <= 3) & (self.past['着順_数値'] <= 3)]) > 0:
@@ -361,8 +362,11 @@ class HorseEvaluator:
             elif self.scores.get('A', 0) >= 5: score_e -= 5; self.log('E1', '激流巻き込まれ(実績馬半減)', -5, True)
             else: score_e -= 10; self.log('E1', '激流巻き込まれ・自滅リスク', -10, True)
 
+        # 🌟 修正: 上がりが使える（自力でバイアスを覆せる）馬はペナルティを軽減
         if bias == '内有利' and len(self.past) > 0 and self.past.iloc[0]['初角位置'] >= 10:
-            score_e -= 7; self.log('E3', '極端なバイアス逆行', -7, True)
+            has_agari = len(self.past[self.past['上り_順位'] <= 3]) > 0
+            penalty = -3 if has_agari else -6
+            score_e += penalty; self.log('E3', '極端なバイアス逆行', penalty, True)
 
         if self.c_type == '芝' and short_corner and self.waku >= 7:
             score_e -= 4; self.log('E4', '芝専用: 初角短いの外枠距離損リスク', -4, True)
@@ -525,7 +529,15 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                 auto_pace = "スロー(前残り)"
                 auto_bias = "内有利"
 
-            if front_runners_count >= (total_horses / 3):
+            if len(nige_horses_waku) == 0:
+                auto_pace = "スロー(前残り)"
+            elif 1 <= len(nige_horses_waku) <= 2 and sum(1 for w in nige_horses_waku if w <= 4) == len(nige_horses_waku):
+                auto_pace = "スロー(前残り)"
+                auto_bias = "内有利"
+
+            # 🌟 修正：短距離（1200m以下）の場合はハイペース判定の閾値を下げる
+            threshold = (total_horses / 4) if dist_target <= 1200 else (total_horses / 3)
+            if front_runners_count >= threshold:
                 auto_pace = "ハイ(前崩れ)"
             elif sum(1 for w in nige_horses_waku if w <= 6) >= 2:
                 auto_pace = "ハイ(前崩れ)"
