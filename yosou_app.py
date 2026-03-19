@@ -598,3 +598,31 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                 st.info(f"**【3連単 フォーメーション (上位拮抗)】**\n1着: {s_horses[0]}, {s_horses[1]}\n2着: {', '.join(map(str, s_horses + a_horses))}\n3着: {', '.join(map(str, s_horses + a_horses + b_horses))}")
             else:
                 st.warning("圧倒的なSランク不在のため、Aランク馬を中心としたBOX買い、または馬連推奨の大混戦です。")
+
+            # 🌟 ここから追加：コピー用出力エリア 🌟
+            st.markdown("---")
+            st.markdown("### 📋 予想結果まとめ（コピー用）")
+            st.markdown("※右上のコピーアイコンを押すと一括コピーできます。SNSへの投稿やメモ帳への貼り付けにご活用ください。")
+            
+            # 1. レース情報のテキスト構築
+            copy_text = f"【レース情報】\n"
+            copy_text += f"競馬場: {keibajo_target} / コース: {c_type_target} / 距離: {dist_target}m / 馬場: {current_baba}\n"
+            copy_text += f"想定ペース: {auto_pace} / トラックバイアス: {auto_bias}\n\n"
+            
+            # 2. 各出走馬の評価テキスト構築
+            copy_text += f"【各出走馬の評価詳細】\n"
+            for _, row in df_results.iterrows():
+                copy_text += f"■ [{row['ランク']}] {int(row['馬番'])}番 {row['馬名']} (スコア: {row['基礎スコア']}点)\n"
+                
+                # ログを見やすくインデントして追加
+                if pd.notna(row['加点・減点ログ']) and row['加点・減点ログ'] != "":
+                    # 改行ごとにインデントを下げて見やすくする
+                    formatted_logs = str(row['加点・減点ログ']).replace('\n', '\n  ・')
+                    copy_text += f"  ・{formatted_logs}\n"
+                else:
+                    copy_text += "  ・特筆すべきスコア増減なし\n"
+                
+                copy_text += "-" * 30 + "\n"
+            
+            # 3. テキストエリア（コピーボタン付き）として出力
+            st.code(copy_text, language="text")
