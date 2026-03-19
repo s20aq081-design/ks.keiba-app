@@ -51,8 +51,14 @@ def get_course_info(keibajo, c_type, dist):
 # ==========================================
 def preprocess_data(df_shutuba, df_past):
     past = df_past.copy()
+    
+    # 🌟 追加: 「中止」「除外」「取消」が含まれる行（レース）をデータから完全に除外する
+    past = past[~past.get('着順', pd.Series(dtype=str)).astype(str).str.contains('中止|除外|取消', na=False)]
+    
     past['着順_数値'] = pd.to_numeric(past.get('着順', 99), errors='coerce').fillna(99).astype(int)
     past['着差_数値'] = pd.to_numeric(past.get('着差', 9.9), errors='coerce').fillna(9.9)
+    # ✅ 追加: 出走頭数を数値化（展開割合の計算に使用）
+    past['頭数_数値'] = pd.to_numeric(past.get('頭数', 16), errors='coerce').fillna(16).astype(float)
         
     def extract_corner(x, pos='first'):
         if pd.isna(x) or not isinstance(x, str): return np.nan
@@ -99,15 +105,13 @@ class HorseEvaluator:
         self.dist = self.race.get('距離_数値', 1600)
         self.keibajo = self.race.get('競馬場', '')
         self.baba = self.race.get('馬場', '良') 
-        self.is_hinba = self.race.get('is_hinba_only', False)
+        self.is_hinba = self.race.get('is_hinba_only', False) or ('牝' in self.sex_age) # is_hinba判定を強化
 
-        # ログに基本情報を出力
         self.details.append(f"【レース環境】 {self.c_type}戦 / 初角距離[{self.race.get('corner_len')}] / 芝スタート[{self.race.get('is_shiba_start')}]")
         
         self.base_kinryo_standard = 54 if self.is_hinba else (56 if '牝' in self.sex_age else 58)
 
     def log(self, item_id, title, point, is_match=True):
-        # ✅ スコア増減があった（0点ではない）場合のみログに出力する
         if point != 0:
             self.details.append(f"[{item_id}] {title} ({point:+d}点)")
 
@@ -149,8 +153,12 @@ class HorseEvaluator:
         if len(self.past[(self.past['着順_数値'] == 1) & (self.past['着差_数値'] <= -0.8)]) > 0:
             bonus_a += 10; self.log('A9', '規格外能力ボーナス', 10, True)
 
-        if self.is_hinba and self.kinryo <= 53 and len(self.past) > 0 and (recent_5.head(3)['初角位置'] <= 4).any() and self.keibajo in ['中山', '阪神', '小倉', '福島', '函館', '札幌']:
-            bonus_a += 8; self.log('牝馬特例', '真の軽ハンデ×先行力特大加点', 8, True)
+        # 🌟 追加・修正: 牝馬特例 (小回り判定の厳密化)
+        is_hanshin_soto = (self.keibajo == '阪神' and self.c_type == '芝' and self.dist in [1600, 1800, 2400])
+        is_komawari_target = self.keibajo in ['中山', '小倉', '福島', '函館', '札幌'] or (self.keibajo == '阪神' and not is_hanshin_soto)
+
+        if self.is_hinba and self.kinryo <= 53 and len(self.past) > 0 and (recent_5.head(3).get('初角位置', pd.Series([99]*3)) <= 4).any() and is_komawari_target:
+            bonus_a += 8; self.log('牝馬特例', '真の軽ハンデ×先行力特大加点(小回り限定)', 8, True)
 
         self.scores['A'] = min(score_a, 10) + bonus_a
 
@@ -177,8 +185,20 @@ class HorseEvaluator:
         if self.baba in ['稍', '重', '不良'] and self.waku >= 6 and has_agari:
             score_b += 3; self.log('B4', '枠順・バイアス基本補正(後半/荒れ)', 3, True)
 
-        if len(self.past[(self.past['馬場'] == self.baba) & (self.past['着順_数値'] == 1)]) > 0:
-            score_b += 4; self.log('B5', '当日馬場状態の完全一致', 4, True)
+        # 🌟 追加・修正: 馬場状態の適性チェック（加点・減点）
+        if self.baba in ['稍', '重', '不良']:
+            # 加点：当日の道悪馬場と完全一致で1着実績あり
+            if len(self.past[(self.past['馬場'] == self.baba) & (self.past['着順_数値'] == 1)]) > 0:
+                score_b += 4; self.log('B5', '当日馬場状態の完全一致(道悪巧者)', 4, True)
+            
+            # 減点：道悪（稍・重・不良）を3戦以上走って3着以内ゼロ（道悪の明確な苦手）
+            past_michiwaku = self.past[self.past['馬場'].isin(['稍', '重', '不良'])]
+            if len(past_michiwaku) >= 3 and len(past_michiwaku[past_michiwaku['着順_数値'] <= 3]) == 0:
+                score_b -= 5; self.log('B5', '道悪の明確な苦手実績(3戦以上で好走なし)', -5, True)
+        else:
+            # 良馬場の場合の基本加点
+            if len(self.past[(self.past['馬場'] == '良') & (self.past['着順_数値'] == 1)]) > 0:
+                score_b += 4; self.log('B5', '当日馬場状態の完全一致(良馬場)', 4, True)
 
         if bias == '内有利' and self.waku <= 6 and len(self.past) > 0 and 3 <= self.past.head(3)['初角位置'].mean() <= 6 and nige_disabled:
             score_b += 5; self.log('B6', '芝開幕週の特例と解除(好位インへのスライド)', 5, True)
@@ -239,19 +259,22 @@ class HorseEvaluator:
             score_b += 5; self.log('B24', '道悪ダートキックバック回避', 5, True)
 
         if len(self.past[(self.past['競馬場'] == self.keibajo) & (self.past['距離_数値'] == self.dist) & (self.past['着順_数値'] <= 3) & (self.past['レース名'].astype(str).str.contains('G', na=False))]) > 0:
-            score_b = max(score_b, 15); 
+            score_b = max(score_b, 15)
             if score_b == 15: 
-                self.log('B2', 'リピーター絶対保護による下限適用', 0, True) # これだけは0点でも出す（下限補正の証明のため）
+                self.log('B2', 'リピーター絶対保護による下限適用', 0, True) 
 
         self.scores['B'] = min(score_b, 25)
 
     def eval_C(self):
         score_c = 0
         jockey = str(self.horse.get('騎手', ''))
+        
         if any(name in jockey for name in ['モレイラ', 'レーン', 'Ｃ．デムーロ']):
             score_c += 2; self.log('C1', '特定コンビ補正', 2, True)
+            
         if '高杉' in jockey:
             score_c += 3; self.log('C3', '高杉騎手補正', 3, True)
+            
         self.scores['C'] = min(score_c, 5)
 
     def eval_D(self):
@@ -264,8 +287,13 @@ class HorseEvaluator:
         if len(self.past[(self.past['初角位置'] <= 3) & (self.past['着順_数値'] <= 3)]) > 0 or len(self.past[(self.past['初角位置'] >= 10) & (self.past['着順_数値'] == 1)]) > 0:
             score_d += 5; self.log('D1', '展開耐性', 5, True)
         
-        if self.keibajo == '東京' and self.dist == 2000 and len(self.past) > 0 and self.past.iloc[0]['初角位置'] <= 4 and self.past.iloc[0]['上り_順位'] <= 3:
-            score_d += 4; self.log('D2', 'コース特化立ち回り', 4, True)
+        special_courses = [
+            ('東京', '芝', 2000), ('中山', '芝', 1600), ('新潟', '芝', 2000),
+            ('阪神', '芝', 2200), ('中山', '芝', 2200)
+        ]
+        if (self.keibajo, self.c_type, self.dist) in special_courses:
+            if len(self.past) > 0 and self.past.iloc[0]['初角位置'] <= 4 and self.past.iloc[0]['上り_順位'] <= 3:
+                score_d += 8; self.log('D2', '特殊コース特化立ち回り(スタート直後コーナー)', 8, True)
         
         if self.race.get('is_tanki_nige_waku') == self.waku:
             score_d += 10; self.log('D3', '単騎逃げの特権', 10, True)
@@ -279,27 +307,31 @@ class HorseEvaluator:
         if self.keibajo in ['中山', '阪神', '中京'] and pace == 'ハイ(前崩れ)' and len(self.past[(self.past['競馬場'].isin(['中山', '阪神'])) & (self.past['上り_順位'] <= 3)]) > 0:
             score_d += 4; self.log('D7', '急坂特化展開利', 4, True)
         
-        if self.baba in ['稍', '重', '不良'] and self.kinryo <= 54 and self.waku <= 4:
-            score_d += 5; self.log('D8', '軽量・イン突き伏兵', 5, True)
+        is_light_weight = (self.kinryo <= 52) if getattr(self, 'is_hinba', False) else (self.kinryo <= 54)
+        if self.baba in ['稍', '重', '不良'] and is_light_weight and self.waku <= 4:
+            score_d += 5; self.log('D8', '軽量・イン突き伏兵(男女補正済)', 5, True)
 
         if front_collapse and len(self.past) >= 3:
-            avg_pos = self.past.head(3)['初角位置'].mean()
-            is_leader = avg_pos <= 3
-            is_mid = 4 <= avg_pos <= 8
-            is_rear = avg_pos >= 9
-            has_agari = (self.past.head(3)['上り_順位'] <= 3).any()
+            recent_5 = self.past.head(5)
+            avg_ratio = (recent_5['初角位置'] / recent_5['頭数_数値']).mean()
+            
+            is_leader = avg_ratio <= 0.25
+            is_rear = avg_ratio >= 0.65
+            is_mid = 0.25 < avg_ratio < 0.65
+            
+            has_agari = (recent_5['上り_順位'] <= 3).any()
             is_steep_small = self.keibajo in ['中山', '阪神', '小倉', '福島', '函館', '札幌']
             is_dirt_short = (self.c_type == 'ダ') and (self.dist <= 1400)
 
             if super_collapse:
-                if is_mid: score_d += 8; self.log('Dペース', '超前崩れ(好位中団直撃)', 8, True)
+                if is_mid: score_d += 8; self.log('Dペース', '超前崩れ(中団直撃)', 8, True)
                 elif is_rear and has_agari:
                     pts = 3 if is_dirt_short else 12
-                    score_d += pts; self.log('Dペース', f'超前崩れ(後方待機)', pts, True)
+                    score_d += pts; self.log('Dペース', '超前崩れ(後方待機)', pts, True)
             else:
                 if is_mid:
                     pts = 8 if (ninki <= 3 or self.scores.get('A', 0) >= 8) else 10
-                    score_d += pts; self.log('Dペース', '前崩れ(好位恩恵)', pts, True)
+                    score_d += pts; self.log('Dペース', '前崩れ(中団恩恵)', pts, True)
                 elif is_rear:
                     if is_steep_small or is_dirt_short:
                         score_d += 3; self.log('Dペース', '前崩れ(急坂小回後方)', 3, True)
@@ -319,7 +351,7 @@ class HorseEvaluator:
         
         if front_collapse and len(self.past) >= 3 and (self.past.head(3)['初角位置'] <= 4).all():
             if is_pocket and has_heavy_high_record: 
-                pass # 免除
+                pass
             elif is_pocket and not has_heavy_high_record: score_e -= 10; self.log('E1', '激流インベタ自滅直撃', -10, True)
             elif super_collapse: score_e -= 5; self.log('E1', '超前崩れ: 人気馬自滅', -5, True)
             elif self.scores.get('A', 0) >= 5: score_e -= 5; self.log('E1', '激流巻き込まれ(実績馬半減)', -5, True)
@@ -346,13 +378,15 @@ class HorseEvaluator:
         if self.c_type == 'ダ' and self.baba in ['稍', '重', '不良'] and pace == 'ハイ(前崩れ)' and len(self.past) > 0 and self.past.iloc[0]['初角位置'] >= 7:
             score_e -= 8; self.log('E9', 'スピード馬場後方待機リスク', -8, True)
 
-        if bias == '内有利' and self.waku <= 3 and len(self.past) >= 3 and (self.past.head(3)['初角位置'] >= 7).all():
-            score_e -= 5; self.log('E10', '内枠ドン詰まりリスク', -5, True)
+        if bias == '内有利' and self.waku <= 3 and len(self.past) >= 3:
+            recent_3 = self.past.head(3)
+            if (recent_3['初角位置'] / recent_3['頭数_数値'] >= 0.65).all():
+                score_e -= 5; self.log('E10', '内枠ドン詰まりリスク(後方常習)', -5, True)
 
         if front_collapse and len(self.past) >= 3 and (self.past.head(3)['着差_数値'] >= 1.0).all():
             score_e -= 5; self.log('E11', '能力不足の後方待機馬への足切り', -5, True)
         
-        if self.is_hinba and self.kinryo >= 55.5 and self.scores.get('A', 0) <= 5:
+        if getattr(self, 'is_hinba', False) and self.kinryo >= 55.5 and self.scores.get('A', 0) <= 5:
             score_e -= 5; self.log('牝馬特例', '重ハンデ過信排除', -5, True)
 
         self.scores['E'] = score_e
@@ -362,8 +396,16 @@ class HorseEvaluator:
         if len(self.past) > 0:
             prev = self.past.iloc[0]
             
-            if self.c_type == 'ダ' and (prev['着順_数値'] <= 5 or prev['着差_数値'] <= 0.6):
-                score_f += 4; self.log('F1', 'ローテーション好転', 4, True)
+            if self.c_type == 'ダ':
+                try:
+                    today_date = pd.to_datetime(self.race.get('日付', pd.Timestamp.today()))
+                    prev_date = pd.to_datetime(prev.get('日付', pd.Timestamp('1900-01-01')))
+                    interval_days = (today_date - prev_date).days
+                except:
+                    interval_days = 999
+                
+                if interval_days <= 24 and (prev['着順_数値'] <= 5 or prev['着差_数値'] <= 0.6):
+                    score_f += 4; self.log('F1', 'ローテーション好転(短期好調維持)', 4, True)
 
             if len(self.past[(self.past['競馬場'] == self.keibajo) & (self.past['着順_数値'] <= 3)]) > 0:
                 score_f += 4; self.log('F2', '条件好転', 4, True)
@@ -397,7 +439,7 @@ class HorseEvaluator:
 # ==========================================
 # 4. Streamlit UI 画面構築
 # ==========================================
-st.title("🧠 AI競馬予想エンジン（CSV読込対応・UI最適化版 Ver.1.3.1）")
+st.title("🧠 AI競馬予想エンジン（CSV読込対応・UI最適化版 Ver.1.4）")
 
 # --- CSV読み込み関数（文字コード自動判定付き） ---
 def load_csv(uploaded_file):
@@ -415,7 +457,6 @@ with col_file2:
     uploaded_past = st.file_uploader("📥 過去戦績CSV", type=['csv'])
 
 if uploaded_shutuba is not None and uploaded_past is not None:
-    # 修正した関数でCSVを読み込む
     raw_shutuba = load_csv(uploaded_shutuba)
     raw_past = load_csv(uploaded_past)
     
@@ -530,20 +571,16 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                 
             df_results['ランク'] = [assign_rank(i, row['基礎スコア']) for i, row in df_results.iterrows()]
 
-            # ✅ テーブル（表）にはスッキリした4列のみを表示する
             df_summary = df_results[['ランク', '馬番', '馬名', '基礎スコア']]
 
             st.success(f"【判定完了】自動コース判定: 芝スタート[{is_shiba_start}] / 初角距離[{corner_len}] | 逃げ馬候補 {len(nige_horses_waku)}頭 -> 自動設定ペース: {auto_pace}")
             st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-            # ✅ テーブルの下に、各馬の「詳細ログ」をアコーディオン（スクロール）で表示
             st.markdown("### 📝 各馬の評価ログ詳細（クリックで展開）")
             for _, row in df_results.iterrows():
-                # 見出しは馬名やスコアなどシンプルに
                 with st.expander(f"【{row['ランク']}】 {int(row['馬番'])}番 {row['馬名']} (スコア: {row['基礎スコア']}点)"):
                     st.code(row['加点・減点ログ'], language="text")
 
-            # --- 買い目フォーメーションの自動提案 ---
             st.markdown("### 🎫 推奨買い目フォーメーション")
             s_horses = df_results[df_results['ランク'] == 'S']['馬番'].dropna().astype(int).tolist()
             a_horses = df_results[df_results['ランク'] == 'A']['馬番'].dropna().astype(int).tolist()
