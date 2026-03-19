@@ -4,89 +4,74 @@ import pandas as pd
 from bs4 import BeautifulSoup
 import io
 
-st.set_page_config(page_title="レース結果スクレイピング", layout="wide")
+st.set_page_config(page_title="競馬結果スクレイパー", layout="wide")
 
-st.title("🐎 競馬レース結果 スクレイピングアプリ")
-st.write("netkeibaのレース結果URLを入力すると、結果データを抽出してテキストコピー可能な形式に変換します。")
+st.title("🐎 競馬結果抽出アプリ")
+st.write("URLを入力すると、結果と払い戻しをコピー可能な形式で抽出します。")
 
-# URL入力欄
-default_url = "https://race.netkeiba.com/race/result.html?race_id=202606020611"
-url_input = st.text_input("レース結果のURLを入力してください:", default_url)
+url_input = st.text_input("netkeiba レース結果URL:", "https://race.netkeiba.com/race/result.html?race_id=202606020611")
 
-if st.button("データを抽出する"):
-    with st.spinner('データを取得中...'):
+if st.button("データ抽出開始"):
+    with st.spinner('データを解析中...'):
         try:
-            # サーバーに負荷をかけないようヘッダーを設定
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-            }
+            headers = {"User-Agent": "Mozilla/5.0"}
             response = requests.get(url_input, headers=headers)
-            response.encoding = 'EUC-JP' # netkeiba特有の文字コードに対応
-            html = response.text
+            response.encoding = 'EUC-JP'
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            soup = BeautifulSoup(html, 'html.parser')
+            # --- ペース情報の取得 ---
+            # netkeibaのレース概要欄からペース（例：前3F 34.5 - 後3F 35.8）を探します
+            pace_val = "取得失敗"
+            race_data = soup.find('div', class_='RaceData01')
+            if race_data:
+                # サイト構造から「ペース」という文字を含む要素を検索
+                pace_info = [span.get_text() for span in race_data.find_all('span') if '前' in span.get_text() or '後' in span.get_text()]
+                if pace_info:
+                    pace_val = " / ".join(pace_info)
+                else:
+                    # ペースが直接見つからない場合はハロンタイムから推測（簡易版）
+                    pace_val = "サイト上で確認してください"
+
+            # --- テーブルデータの取得 ---
+            tables = pd.read_html(io.StringIO(response.text))
             
-            # pandasを使ってHTML内のテーブル（表）を一括取得
-            tables = pd.read_html(io.StringIO(html))
+            # 1. レース結果（着順、枠、馬番、馬名、性齢、斤量、騎手、タイム、着差、人気、単勝オッズ、後3F、コーナー通過順、厩舎、馬体重）
+            df_result = tables[0]
             
-            if len(tables) > 0:
-                # ------------------------------
-                # 1. メインのレース結果テーブル
-                # ------------------------------
-                st.subheader("🏆 レース結果")
-                df_result = tables[0] # 通常、最初の表が着順データ
-                
-                # Streamlitの表として表示
-                st.dataframe(df_result, use_container_width=True)
-                
-                # Excelやスプレッドシートにコピペしやすいようタブ区切りで出力
-                st.write("▼ Excel/スプレッドシート貼り付け用（テキストをコピーしてください）")
-                st.text_area("レース結果コピー用", df_result.to_csv(sep='\t', index=False), height=200)
+            # 2. 払い戻し（単勝〜3連単まで全て結合）
+            pay_dfs = []
+            for t in tables[1:]:
+                # 払い戻しテーブル特有の「単勝」や「三連単」という文字が含まれているかチェック
+                if any(x in str(t.values) for x in ['単勝', '三連単', '馬連']):
+                    pay_dfs.append(t)
+            df_payout = pd.concat(pay_dfs, ignore_index=True) if pay_dfs else pd.DataFrame()
 
-                # ------------------------------
-                # 2. 払い戻しテーブル
-                # ------------------------------
-                st.subheader("💰 払い戻し")
-                # 払い戻し情報は通常、2番目以降のテーブルに分割されている
-                pay_dfs = []
-                for table in tables[1:]:
-                    if len(table.columns) >= 2 and len(table) > 0:
-                        pay_dfs.append(table)
-                
-                if pay_dfs:
-                    # 払い戻し表を縦に結合して表示
-                    df_payout = pd.concat(pay_dfs, ignore_index=True)
-                    st.dataframe(df_payout, use_container_width=True)
-                    st.text_area("払い戻しコピー用", df_payout.to_csv(sep='\t', index=False), height=150)
+            # --- 画面表示 ---
+            st.success(f"解析完了！ ペース: **{pace_val}**")
+            
+            # コピー用テキストの作成
+            result_text = f"【ペース】: {pace_val}\n\n" + df_result.to_csv(sep='\t', index=False)
+            payout_text = df_payout.to_csv(sep='\t', index=False) if not df_payout.empty else "払い戻しデータなし"
 
-                # ------------------------------
-                # 3. コーナー通過順位・ラップタイム
-                # ------------------------------
-                st.subheader("⏱ コーナー通過順 / ラップタイム")
-                
-                # HTMLから特定のクラスを持つ要素を検索
-                lap_info = soup.find('div', class_='Race_HaronTime')
-                corner_info = soup.find('div', class_='Corner_Pass')
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    if lap_info:
-                        st.markdown("**ラップタイム**")
-                        # テキストとして抽出して整形
-                        lap_text = lap_info.get_text(separator='\t', strip=True)
-                        st.text_area("ラップタイムコピー用", lap_text, height=100)
-                    else:
-                        st.info("ラップタイム情報が見つかりませんでした。")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📋 レース結果 (コピー用)")
+                st.info("右上のアイコンをクリックで全選択コピーできます")
+                # st.code を使うと右上にコピーボタンが出現します
+                st.code(result_text, language="text")
 
-                with col2:
-                    if corner_info:
-                        st.markdown("**コーナー通過順位**")
-                        corner_text = corner_info.get_text(separator='\n', strip=True)
-                        st.text_area("コーナー順位コピー用", corner_text, height=100)
-                    else:
-                        st.info("コーナー通過順位情報が見つかりませんでした。")
+            with col2:
+                st.subheader("💰 払い戻し (コピー用)")
+                st.info("単勝〜3連単まで抽出済み")
+                st.code(payout_text, language="text")
+
+            # プレビュー用表示
+            with st.expander("表形式でプレビューを確認"):
+                st.write("### 結果一覧")
+                st.dataframe(df_result)
+                st.write("### 払い戻し一覧")
+                st.dataframe(df_payout)
 
         except Exception as e:
-            st.error(f"データ抽出中にエラーが発生しました: {e}")
-            st.warning("URLが間違っているか、サイトのHTML構造が変更された可能性があります。")
+            st.error(f"エラーが発生しました: {e}")
