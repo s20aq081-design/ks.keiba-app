@@ -61,8 +61,10 @@ if check_password():
     with col2:
         end_race = st.number_input("終了レース", min_value=1, max_value=12, value=12)
 
-    # 【新規追加】過去何走分を取得するかユーザーが決められるフォーム
     past_race_limit = st.number_input("過去戦績の取得数 (1頭あたり何走分取得するか)", min_value=1, max_value=100, value=20)
+
+    # 【新規追加】除外するレース日付の入力フォーム
+    exclude_date = st.text_input("除外するレース日付 (過去戦績から除外したい日付があれば入力)", placeholder="例: 2026/03/15 (入力なしでもOK)")
 
     file_prefix = st.text_input("出力するCSVの名前", placeholder="例: 20260315_中京競馬場")
 
@@ -89,7 +91,6 @@ if check_password():
                 file_prefix = f"一括取得_{base_id}"
                 
             csv_shutuba = f"{file_prefix}_{start_race}Rから{end_race}R_出走馬データ.csv"
-            # 【変更】出力されるファイル名にも、取得した過去走の数を記載
             csv_past = f"{file_prefix}_{start_race}Rから{end_race}R_戦績データ_過去{past_race_limit}戦.csv"
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
 
@@ -166,7 +167,6 @@ if check_password():
             # 2. 過去戦績データの取得
             # ==========================================
             total_horses = len(all_horse_urls)
-            # 【変更】画面の案内文にも指定した取得数を反映
             st.info(f"📊 続いて、全{total_horses}頭の過去{past_race_limit}戦データを一気に取得します！（約{total_horses}秒かかります）")
             past_progress_bar = st.progress(0)
             status_text = st.empty()
@@ -191,6 +191,10 @@ if check_password():
                     tds = h_row.find_all('td')
                     if len(tds) >= 25 and col_map: 
                         date = tds[col_map.get('日付', 0)].text.strip()
+                        
+                        # 【新規追加】指定した除外日付と同じ場合はスキップ
+                        if exclude_date and date == exclude_date.strip():
+                            continue
                         
                         kaisai_raw = tds[col_map.get('開催', 1)].text.strip()
                         keibajo = re.sub(r'\d+', '', kaisai_raw)
@@ -237,7 +241,6 @@ if check_password():
                         all_past_results.append([target_r_num, target_place, horse_name, date, keibajo, race_name, tousuu, waku, umaban, odds, ninki, chakujun, jockey, kinryo, kyori, baba, time_str, chakusa, tsuuka, pace, agari, bataiju])
                         
                         race_count += 1
-                        # 【変更】ユーザーが指定した取得数(past_race_limit)に達したら終了する
                         if race_count >= past_race_limit: 
                             break
                             
