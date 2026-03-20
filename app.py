@@ -63,8 +63,8 @@ if check_password():
 
     past_race_limit = st.number_input("過去戦績の取得数 (1頭あたり何走分取得するか)", min_value=1, max_value=100, value=20)
 
-    # 【新規追加】除外するレース日付の入力フォーム
-    exclude_date = st.text_input("除外するレース日付 (過去戦績から除外したい日付があれば入力)", placeholder="例: 2026/03/15 (入力なしでもOK)")
+    # 【入力欄のヒントも修正】
+    exclude_date = st.text_input("除外するレース日付 (過去戦績から除外したい日付があれば入力)", placeholder="例: 20260315 または 2026/03/15 (入力なしでもOK)")
 
     file_prefix = st.text_input("出力するCSVの名前", placeholder="例: 20260315_中京競馬場")
 
@@ -192,9 +192,15 @@ if check_password():
                     if len(tds) >= 25 and col_map: 
                         date = tds[col_map.get('日付', 0)].text.strip()
                         
-                        # 【新規追加】指定した除外日付と同じ場合はスキップ
-                        if exclude_date and date == exclude_date.strip():
-                            continue
+                        # ==========================================
+                        # 【修正ポイント】 スラッシュ（/）を取り除いてから比較する
+                        # ==========================================
+                        if exclude_date:
+                            clean_date = date.replace('/', '') # 「2026/03/15」→「20260315」
+                            clean_exclude = exclude_date.replace('/', '').strip() # 入力値も同様に処理
+                            
+                            if clean_date == clean_exclude:
+                                continue # 一致したらスキップ
                         
                         kaisai_raw = tds[col_map.get('開催', 1)].text.strip()
                         keibajo = re.sub(r'\d+', '', kaisai_raw)
