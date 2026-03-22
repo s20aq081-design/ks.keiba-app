@@ -651,20 +651,29 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                 st.write(f"**🎯 馬連・ワイド (軸1頭流し):** {top_horses[0]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}")
                 st.write(f"**👑 3連複 (フォーメーション):** {top_horses[0]} - {top_horses[1]}, {top_horses[2]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}")
                 
-                # --- 追加：SNS等へのコピー用まとめ出力 ---
+                # --- 追加・修正：全頭の評価詳細もコピーテキストに結合！ ---
                 st.markdown("---")
                 st.markdown("### 📋 予想結果まとめ（コピー用）")
                 st.markdown("※右上のコピーアイコンを押すと一括コピーできます。SNSへの投稿やメモ帳への貼り付けにご活用ください。")
                 
-                copy_text = f"【AI競馬予想エンジン 予想結果】\n\n"
+                copy_text = f"【AI競馬予想エンジン 予想結果】\n"
+                copy_text += f"🎯 対象レース: {target_race if 'レース' in df_shutuba.columns else '設定なし'}\n"
+                copy_text += f"🏇 ペース予想: {auto_pace} / バイアス: {auto_bias}\n\n"
+                
+                copy_text += f"🎫 推奨買い目\n"
                 copy_text += f"◎ 本命: {top_horses[0]}番\n"
                 copy_text += f"○ 対抗: {top_horses[1]}番\n"
                 copy_text += f"▲ 単穴: {top_horses[2]}番\n"
                 copy_text += f"△ 連下: {top_horses[3]}番, {top_horses[4]}番\n\n"
-                copy_text += f"🎫 推奨買い目\n"
                 copy_text += f"単複: {top_horses[0]}\n"
                 copy_text += f"馬連/ワイド: {top_horses[0]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}\n"
-                copy_text += f"3連複: {top_horses[0]} - {top_horses[1]}, {top_horses[2]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}\n"
+                copy_text += f"3連複: {top_horses[0]} - {top_horses[1]}, {top_horses[2]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}\n\n"
+                
+                copy_text += "------------------------\n"
+                copy_text += "📝 各馬の評価ログ詳細\n"
+                for _, row in df_results.iterrows():
+                    copy_text += f"【{row['ランク']}】 {int(row['馬番'])}番 {row['馬名']} (スコア: {row['基礎スコア']}点)\n"
+                    copy_text += f"{row['加点・減点ログ']}\n\n"
                 
                 st.code(copy_text, language="text")
 
