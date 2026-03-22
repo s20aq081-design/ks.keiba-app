@@ -650,5 +650,23 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                 st.write(f"**🔥 単勝・複勝推奨:** {top_horses[0]}番")
                 st.write(f"**🎯 馬連・ワイド (軸1頭流し):** {top_horses[0]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}")
                 st.write(f"**👑 3連複 (フォーメーション):** {top_horses[0]} - {top_horses[1]}, {top_horses[2]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}")
+                
+                # --- 追加：SNS等へのコピー用まとめ出力 ---
+                st.markdown("---")
+                st.markdown("### 📋 予想結果まとめ（コピー用）")
+                st.markdown("※右上のコピーアイコンを押すと一括コピーできます。SNSへの投稿やメモ帳への貼り付けにご活用ください。")
+                
+                copy_text = f"【AI競馬予想エンジン 予想結果】\n\n"
+                copy_text += f"◎ 本命: {top_horses[0]}番\n"
+                copy_text += f"○ 対抗: {top_horses[1]}番\n"
+                copy_text += f"▲ 単穴: {top_horses[2]}番\n"
+                copy_text += f"△ 連下: {top_horses[3]}番, {top_horses[4]}番\n\n"
+                copy_text += f"🎫 推奨買い目\n"
+                copy_text += f"単複: {top_horses[0]}\n"
+                copy_text += f"馬連/ワイド: {top_horses[0]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}\n"
+                copy_text += f"3連複: {top_horses[0]} - {top_horses[1]}, {top_horses[2]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}\n"
+                
+                st.code(copy_text, language="text")
+
             else:
                 st.write("※出走頭数が少ないため、買い目の自動生成はスキップします。")
