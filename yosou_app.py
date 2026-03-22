@@ -111,7 +111,8 @@ class HorseEvaluator:
         self.base_kinryo_standard = 54 if self.is_hinba else (56 if '牝' in self.sex_age else 58)
 
     def log(self, item_id, title, point, is_match=True):
-        if point != 0:
+        # 0点でも「リミッター」や「下限適用」などのメッセージはログに残すよう修正
+        if point != 0 or '適用' in title or 'リミッター' in title:
             self.details.append(f"[{item_id}] {title} ({point:+d}点)")
 
     def eval_A(self):
@@ -344,7 +345,6 @@ class HorseEvaluator:
                     score_d += pts; self.log('Dペース', '超前崩れ(後方待機)', pts, True)
             else:
                 if is_mid:
-                    # ▼ 修正⑤：前傾自滅リスク判定
                     pts = 8 if (ninki <= 3 or self.scores.get('A', 0) >= 8) else 10
                     if front_collapse and len(recent_5.head(3)[recent_5.head(3)['初角位置'] <= 2]) > 0:
                         pts = pts // 2
@@ -380,7 +380,6 @@ class HorseEvaluator:
             
             if front_position_count >= 2:
                 has_class_ability = self.scores.get('A', 0) >= 8
-                # ▼ 修正⑥：格上馬の判定
                 has_high_class = len(self.past.head(5)[(self.past.head(5)['レース名'].astype(str).str.contains('GI|G1|GII|G2', na=False)) & (self.past.head(5)['着順_数値'] <= 5)]) > 0
                 
                 if has_high_class:
@@ -390,19 +389,16 @@ class HorseEvaluator:
                 elif is_pocket and has_heavy_high_record: 
                     pass
                 elif is_pocket and not has_heavy_high_record: 
-                    # ▼ 修正③：-10から-6へ緩和
                     score_e -= 6; self.log('E1', '激流インベタ自滅直撃', -6, True)
                 elif super_collapse: 
                     score_e -= 5; self.log('E1', '超前崩れ: 人気馬自滅', -5, True)
                 elif self.scores.get('A', 0) >= 5: 
                     score_e -= 5; self.log('E1', '激流巻き込まれ(実績馬半減)', -5, True)
                 elif self.scores.get('A', 0) >= 3: 
-                    # ▼ 修正③：基礎スコアA保持者の減点緩和を追加
                     score_e -= 3; self.log('E1', '激流巻き込まれ(地力で抵抗)', -3, True)
                 elif self.dist <= 1400 and self.waku >= 7 and (recent_3['初角位置'] == 1).any():
                     score_e -= 2; self.log('E1', '激流巻き込まれ(外枠単騎逃げ見込みで特例軽減)', -2, True)
                 else: 
-                    # ▼ 修正③：-10から-7へ緩和
                     score_e -= 7; self.log('E1', '激流巻き込まれ・自滅リスク', -7, True)
 
         if bias == '内有利' and len(self.past) > 0 and self.past.iloc[0]['初角位置'] >= 10:
@@ -556,7 +552,6 @@ if uploaded_shutuba is not None and uploaded_past is not None:
             nige_horses_waku = []
             senko_horses_soto = 0
             
-            # ▼ 修正④用：トップジョッキーの先行馬フラグ
             top_jockey_front_control = False
 
             for index, horse_row in target_shutuba.iterrows():
@@ -564,7 +559,6 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                 ninki = pd.to_numeric(horse_row.get('人気', 99), errors='coerce')
                 horse_name = horse_row.get('馬名', '')
                 
-                # ▼ 修正④：トップジョッキーが逃げ/先行候補にいるかを判定
                 jockey = str(horse_row.get('騎手', ''))
                 is_top_jockey = any(name in jockey for name in ['ルメー','Ｃ．デム', 'モレイラ', '武豊', '戸崎'])
                 
@@ -576,7 +570,6 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                         front_runners_count += 1
                         if ninki <= 3: top3_leaders_count += 1
                         
-                        # 先行馬の中にトップジョッキーがいればフラグON
                         if is_top_jockey:
                             top_jockey_front_control = True
                     
@@ -591,24 +584,22 @@ if uploaded_shutuba is not None and uploaded_past is not None:
             nige_bias_disabled = False 
             is_tanki_nige_waku = nige_horses_waku[0] if len(nige_horses_waku) == 1 else None
 
-            # ▼ 修正①：距離やコース種別によるしきい値の厳格化
             if dist_target <= 1200:
                 threshold = total_horses / 4
             elif c_type_target == '芝':
-                threshold = total_horses / 2.0 # 芝は先行馬が50%以上でハイペース（判定を厳しく）
+                threshold = total_horses / 2.0 
             else:
                 threshold = total_horses / 3
 
-            # ▼ 修正①・②の統合：ペース判定ロジック
             if len(nige_horses_waku) >= 3:
-                auto_pace = "ハイ(前崩れ)"  # 逃げ候補が3頭以上なら文句なしでハイ
+                auto_pace = "ハイ(前崩れ)"
                 nige_bias_disabled = True
             elif len(nige_horses_waku) == 2:
                 if dist_target <= 1600:
                     auto_pace = "ハイ(前崩れ)"
                     nige_bias_disabled = True
                 else:
-                    auto_pace = "ミドル" # 中長距離で2頭なら牽制し合ってミドルになりやすい
+                    auto_pace = "ミドル"
             elif sum(1 for w in nige_horses_waku if w <= 6) >= 2:
                 auto_pace = "ハイ(前崩れ)"
                 nige_bias_disabled = True
@@ -626,7 +617,6 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                 else:
                     auto_pace = "ミドル"
                     
-            # ▼ 修正④：トップジョッキーによるペース支配の特例解除
             if auto_pace == "ハイ(前崩れ)" and top_jockey_front_control:
                 auto_pace = "ミドル"
                 st.info("ℹ️ トップジョッキーの前線配置を検知。ハイペース想定をミドルにダウングレードします。")
@@ -662,9 +652,7 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                     "加点・減点ログ": "\n".join(evaluator.details) if evaluator.details else "特筆すべきスコア増減なし"
                 })
                 
-            # --- ▼ここから画面出力用の追記処理（UIへの表示） ---
             df_results = pd.DataFrame(results)
-            # スコアの降順（高い順）に並び替え
             df_results = df_results.sort_values(by="基礎スコア", ascending=False).reset_index(drop=True)
             
             st.success(f"✅ 解析完了: 自動判定ペース【{auto_pace}】 / 適用バイアス【{auto_bias}】")
@@ -676,7 +664,19 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                 height=400
             )
             
-            st.markdown("### 📝 詳細ログ（上位3頭）")
-            for i in range(min(3, len(df_results))):
+            # --- ▼修正箇所：全頭分のログを展開表示するように変更 ---
+            # --- ▼画面で確認する用（先ほどのまま） ---
+            st.markdown("### 📝 各馬の評価ログ詳細（画面確認用）")
+            for i in range(len(df_results)):
                 with st.expander(f"第{i+1}位： {df_results.iloc[i]['馬名']} (スコア: {df_results.iloc[i]['基礎スコア']})", expanded=(i==0)):
                     st.text(df_results.iloc[i]['加点・減点ログ'])
+            
+            # --- ▼追加箇所：まとめてコピペする用のテキストエリア ---
+            st.markdown("### 📋 コピー用：各馬の評価ログ詳細")
+            copy_text = ""
+            for i in range(len(df_results)):
+                copy_text += f"【第{i+1}位】 {df_results.iloc[i]['馬名']} (スコア: {df_results.iloc[i]['基礎スコア']})\n"
+                copy_text += f"{df_results.iloc[i]['加点・減点ログ']}\n"
+                copy_text += "-" * 40 + "\n"
+            
+            st.text_area("以下のテキスト内をクリックして「Ctrl+A (MacはCmd+A)」→「コピー」してください", copy_text, height=300)
