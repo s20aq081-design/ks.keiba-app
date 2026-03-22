@@ -84,7 +84,6 @@ def preprocess_data(df_shutuba, df_past):
     shutuba['馬番'] = pd.to_numeric(shutuba.get('馬番', np.nan), errors='coerce')
     shutuba['斤量_数値'] = pd.to_numeric(shutuba.get('斤量', np.nan), errors='coerce')
     shutuba['馬体重_数値'] = shutuba.get('馬体重', pd.Series(dtype=str)).astype(str).str.extract(r'(\d+)').astype(float)
-    # 🌟 修正①: 馬体重の増減を抽出
     shutuba['馬体重_増減'] = shutuba.get('馬体重', pd.Series(dtype=str)).astype(str).str.extract(r'\(([-+]\d+)\)').astype(float)
 
     return shutuba, past
@@ -229,7 +228,6 @@ class HorseEvaluator:
         if short_corner and self.waku >= 6 and len(self.past) > 0 and (self.past.head(3)['初角位置'] <= 2).any():
             score_b += 3; self.log('B16', '初角短い＋外枠先行(テン速い)', 3, True)
 
-        # 🌟 修正④: 急坂適性のハイペース時特注加点
         steep_courses = ['中山', '阪神', '中京']
         if self.keibajo in steep_courses and len(self.past[(self.past['競馬場'].isin(steep_courses)) & (self.past['上り_順位'] <= 3) & (self.past['着順_数値'] <= 2)]) > 0:
             if pace == 'ハイ(前崩れ)':
@@ -259,7 +257,6 @@ class HorseEvaluator:
         if self.c_type == 'ダ' and self.dist <= 1400 and self.baba in ['稍', '重', '不良'] and self.waku >= 5 and is_senko:
             score_b += 5; self.log('B24', '道悪ダートキックバック回避', 5, True)
             
-        # 🌟 追加⑦: 長直線コース×絶対的鬼脚
         long_straight_courses = ['東京', '新潟', '中京', '阪神']
         if self.keibajo in long_straight_courses and self.c_type == '芝':
             if len(self.past.head(3)[self.past.head(3)['上り_順位'] == 1]) >= 2:
@@ -338,7 +335,6 @@ class HorseEvaluator:
             is_steep_small = self.keibajo in ['中山', '阪神', '小倉', '福島', '函館', '札幌']
             is_dirt_short = (self.c_type == 'ダ') and (self.dist <= 1400)
 
-            # 🌟 修正②: 超前崩れ・前崩れ時のイン有利バイアスでの大外差し強襲
             if super_collapse or front_collapse:
                 is_outside_closer = (self.waku >= 7) and is_rear and has_agari
                 if bias == '内有利' and is_outside_closer:
@@ -357,7 +353,6 @@ class HorseEvaluator:
                     if is_steep_small or is_dirt_short:
                         score_d += 3; self.log('Dペース', '前崩れ(急坂小回後方)', 3, True)
 
-        # 🌟 修正⑥: 展開待ち追い込み馬のDスコア加点リミッター（全距離適用）
         if score_d >= 15:
             if len(self.past) >= 3 and self.past.head(3)['初角位置'].mean() >= 10:
                 if not (self.past.head(3)['上り_順位'] == 1).any():
@@ -394,7 +389,6 @@ class HorseEvaluator:
                     score_e -= 5; self.log('E1', '超前崩れ: 人気馬自滅', -5, True)
                 elif self.scores.get('A', 0) >= 5: 
                     score_e -= 5; self.log('E1', '激流巻き込まれ(実績馬半減)', -5, True)
-                # 🌟 修正⑨: 外枠で逃げ実績がある馬の減点緩和
                 elif self.dist <= 1400 and self.waku >= 7 and (recent_3['初角位置'] == 1).any():
                     score_e -= 2; self.log('E1', '激流巻き込まれ(外枠単騎逃げ見込みで特例軽減)', -2, True)
                 else: 
@@ -434,7 +428,6 @@ class HorseEvaluator:
         if getattr(self, 'is_hinba', False) and self.kinryo >= 55.5 and self.scores.get('A', 0) <= 5:
             score_e -= 5; self.log('牝馬特例', '重ハンデ過信排除', -5, True)
 
-        # 🌟 修正③: 短距離(1400m以下)の極端な追い込み馬ペナルティ
         if self.dist <= 1400 and len(self.past) >= 3:
             recent_3 = self.past.head(3)
             avg_pos = recent_3['初角位置'].mean()
@@ -446,7 +439,6 @@ class HorseEvaluator:
             if weight_diff <= -16:
                 score_e -= 8; self.log('E13', '極端な馬体減(体調不安/過酷減量)', -8, True)
 
-        # 🌟 修正①: 牝馬の大幅な馬体重減に対するペナルティ
         weight_change = self.horse.get('馬体重_増減', 0)
         if getattr(self, 'is_hinba', False) and pd.notna(weight_change) and weight_change <= -10:
             score_e -= 10; self.log('E_Weight', '牝馬の二桁馬体重減(状態不安リスク)', -10, True)
@@ -577,7 +569,6 @@ if uploaded_shutuba is not None and uploaded_past is not None:
             nige_bias_disabled = False 
             is_tanki_nige_waku = nige_horses_waku[0] if len(nige_horses_waku) == 1 else None
 
-            # 🌟 修正⑤・⑧: 前崩れ判定の閾値調整と厳密化
             if dist_target <= 1400:
                 threshold = total_horses / 3.5 
             elif c_type_target == '芝':
@@ -585,7 +576,6 @@ if uploaded_shutuba is not None and uploaded_past is not None:
             else:
                 threshold = total_horses / 3
 
-            # 逃げ馬の競合を重視したペース判定
             if len(nige_horses_waku) >= 2:
                 auto_pace = "ハイ(前崩れ)"
                 nige_bias_disabled = True
@@ -655,4 +645,10 @@ if uploaded_shutuba is not None and uploaded_past is not None:
                     st.code(row['加点・減点ログ'], language="text")
 
             st.markdown("### 🎫 推奨買い目フォーメーション")
-            # --- 買い目表示ロジック等は既存のものを引き継ぎます ---
+            if len(df_results) >= 5:
+                top_horses = df_results.head(5)['馬番'].astype(int).tolist()
+                st.write(f"**🔥 単勝・複勝推奨:** {top_horses[0]}番")
+                st.write(f"**🎯 馬連・ワイド (軸1頭流し):** {top_horses[0]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}")
+                st.write(f"**👑 3連複 (フォーメーション):** {top_horses[0]} - {top_horses[1]}, {top_horses[2]} - {top_horses[1]}, {top_horses[2]}, {top_horses[3]}, {top_horses[4]}")
+            else:
+                st.write("※出走頭数が少ないため、買い目の自動生成はスキップします。")
