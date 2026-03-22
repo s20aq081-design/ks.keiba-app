@@ -675,8 +675,9 @@ if uploaded_shutuba is not None and uploaded_past is not None:
             st.markdown("### 📋 コピー用：各馬の評価ログ詳細")
             copy_text = ""
             for i in range(len(df_results)):
-                copy_text += f"【第{i+1}位】 {df_results.iloc[i]['馬名']} (スコア: {df_results.iloc[i]['基礎スコア']})\n"
+                copy_text += f"【第{i+1}位】 {df_results.iloc[i]['馬名']} (スコア: {df_results.iloc[i]['基礎スコア']:.1f})\n"
                 copy_text += f"{df_results.iloc[i]['加点・減点ログ']}\n"
                 copy_text += "-" * 40 + "\n"
             
-            st.text_area("以下のテキスト内をクリックして「Ctrl+A (MacはCmd+A)」→「コピー」してください", copy_text, height=300)
+            # st.code を使うと、右上に「1クリックコピーボタン」が自動で付きます！
+            st.code(copy_text, language="text")
