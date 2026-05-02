@@ -92,7 +92,11 @@ if check_password():
                 
             csv_shutuba = f"{file_prefix}_{start_race}Rから{end_race}R_出走馬データ.csv"
             csv_past = f"{file_prefix}_{start_race}Rから{end_race}R_戦績データ_過去{past_race_limit}戦.csv"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+            headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8"
+}
 
             all_horse_list = []
             all_horse_urls = []
@@ -178,6 +182,9 @@ if check_password():
 
                 url_res = f"https://db.netkeiba.com/horse/{horse_id}/"
                 res_res = requests.get(url_res, headers=headers)
+                if res_res.status_code != 200:
+    st.error(f"【エラー】過去戦績ページでアクセスが拒否されました。ステータスコード: {res_res.status_code}")
+    break
                 res_res.encoding = 'euc-jp'
                 soup_res = BeautifulSoup(res_res.text, 'html.parser')
                 
@@ -189,7 +196,7 @@ if check_password():
                 
                 for h_row in history_rows:
                     tds = h_row.find_all('td')
-                    if len(tds) >= 25 and col_map: 
+                    if len(tds) >= 20 and col_map:
                         date = tds[col_map.get('日付', 0)].text.strip()
                         
                         # ==========================================
