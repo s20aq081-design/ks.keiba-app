@@ -183,8 +183,9 @@ if check_password():
                 url_res = f"https://db.netkeiba.com/horse/{horse_id}/"
                 res_res = requests.get(url_res, headers=headers)
                 if res_res.status_code != 200:
-    st.error(f"【エラー】過去戦績ページでアクセスが拒否されました。ステータスコード: {res_res.status_code}")
-    break
+                    # ここの2行は、if文よりも「半角スペース4つ分」右にズラす
+                    st.error(f"【エラー】過去戦績ページでアクセスが拒否されました。ステータスコード: {res_res.status_code}")
+                    break
                 res_res.encoding = 'euc-jp'
                 soup_res = BeautifulSoup(res_res.text, 'html.parser')
                 
