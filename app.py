@@ -176,7 +176,7 @@ if check_password():
             for i, (target_r_num, target_place, horse_name, horse_id) in enumerate(all_horse_urls):
                 status_text.text(f"処理中: {target_place}{target_r_num} {horse_name} ({i+1}/{total_horses}頭目)")
 
-                url_res = f"https://db.netkeiba.com/horse/result/{horse_id}/"
+                url_res = f"https://db.netkeiba.com/horse/{horse_id}/"
                 res_res = requests.get(url_res, headers=headers)
                 res_res.encoding = 'euc-jp'
                 soup_res = BeautifulSoup(res_res.text, 'html.parser')
